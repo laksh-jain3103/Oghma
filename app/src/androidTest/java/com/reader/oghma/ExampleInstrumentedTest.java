@@ -1,4 +1,4 @@
-package com.laksh.oghma;
+package com.reader.oghma;
 
 import android.content.Context;
 
@@ -21,6 +21,6 @@ public class ExampleInstrumentedTest {
     public void useAppContext() {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        assertEquals("com.laksh.oghma", appContext.getPackageName());
+        assertEquals("com.reader.oghma", appContext.getPackageName());
     }
 }

@@ -3,13 +3,13 @@ plugins {
 }
 
 android {
-    namespace = "com.laksh.oghma"
+    namespace = "com.reader.oghma"
     compileSdk {
         version = release(37)
-    }
+    } 
 
     defaultConfig {
-        applicationId = "com.laksh.oghma"
+        applicationId = "com.reader.oghma"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
@@ -39,4 +39,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.ext.junit)
+
+    implementation("androidx.room:room-runtime:2.6.1")
+    annotationProcessor("androidx.room:room-compiler:2.6.1")
 }
