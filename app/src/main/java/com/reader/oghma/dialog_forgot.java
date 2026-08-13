@@ -1,4 +1,4 @@
-package com.laksh.oghma;
+package com.reader.oghma;
 
 import android.os.Bundle;
 
@@ -10,8 +10,9 @@ public class dialog_forgot extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
-        setContentView(R.layout.activity_dialog_forgot);
 
+        EdgeToEdge.enable(this);
+
+        setContentView(R.layout.activity_dialog_forgot);
     }
 }

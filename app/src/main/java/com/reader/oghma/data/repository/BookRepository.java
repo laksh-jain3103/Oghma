@@ -35,6 +35,7 @@ public class BookRepository {
 
         executor.execute(() -> {
             bookDao.insert(book);
+
         });
     }
 

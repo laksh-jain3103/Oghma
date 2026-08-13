@@ -14,11 +14,11 @@
         android:id="@+id/readerToolbar"
         android:layout_width="match_parent"
         android:layout_height="56dp"
+        android:background="@color/background_deep"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:background="@color/surface">
+        android:paddingStart="12dp"
+        android:paddingEnd="16dp">
 
         <ImageButton
             android:id="@+id/backButton"
@@ -26,6 +26,7 @@
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"
+            android:padding="12dp"
             android:src="@android:drawable/ic_menu_revert"
             android:tint="@color/text_primary" />
 
@@ -33,8 +34,8 @@
             android:id="@+id/readerTitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:layout_marginStart="8dp"
+            android:layout_weight="1"
             android:ellipsize="end"
             android:maxLines="1"
             android:text="Reader"
@@ -44,14 +45,14 @@
 
     </LinearLayout>
 
-
     <!-- Book content -->
 
     <FrameLayout
         android:id="@+id/readerContainer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:background="@color/reader_background">
 
         <ScrollView
             android:id="@+id/readerScrollView"
@@ -65,13 +66,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingStart="24dp"
+                android:paddingTop="28dp"
                 android:paddingEnd="24dp"
-                android:paddingTop="24dp"
-                android:paddingBottom="48dp"
-                android:textColor="@color/reader_text"
-                android:textSize="18sp"
+                android:paddingBottom="56dp"
                 android:lineSpacingExtra="8dp"
-                android:textIsSelectable="true" />
+                android:textColor="@color/reader_text"
+                android:textIsSelectable="true"
+                android:textSize="18sp" />
 
         </ScrollView>
 
