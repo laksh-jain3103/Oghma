@@ -20,7 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.reader.oghma.R;
-
+import com.reader.oghma.reader.ReaderFragment;
 
 
 public class LibraryFragment extends Fragment {
@@ -103,6 +103,31 @@ public class LibraryFragment extends Fragment {
     private void setupRecyclerView() {
 
         adapter = new BookAdapter();
+
+        adapter.setOnBookClickListener(book -> {
+
+            Bundle args = new Bundle();
+
+            args.putInt(
+                    "bookId",
+                    book.bookId
+            );
+
+            ReaderFragment readerFragment =
+                    new ReaderFragment();
+
+            readerFragment.setArguments(args);
+
+            requireActivity()
+                    .getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(
+                            R.id.fragmentContainer,
+                            readerFragment
+                    )
+                    .addToBackStack(null)
+                    .commit();
+        });
 
         bookRecyclerView.setLayoutManager(
                 new LinearLayoutManager(requireContext())

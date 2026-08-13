@@ -18,6 +18,8 @@ import java.util.List;
 public class BookAdapter
         extends RecyclerView.Adapter<BookAdapter.BookViewHolder> {
 
+    private OnBookClickListener onBookClickListener;
+
     private final List<Book> books = new ArrayList<>();
 
     public void setBooks(List<Book> newBooks) {
@@ -29,6 +31,16 @@ public class BookAdapter
         }
 
         notifyDataSetChanged();
+    }
+
+    public interface OnBookClickListener {
+        void onBookClick(Book book);
+    }
+
+    public void setOnBookClickListener(
+            OnBookClickListener listener) {
+
+        this.onBookClickListener = listener;
     }
 
     @NonNull
@@ -66,6 +78,14 @@ public class BookAdapter
                         ? book.format.toUpperCase()
                         : "BOOK"
         );
+
+        holder.itemView.setOnClickListener(v -> {
+
+            if (onBookClickListener != null) {
+                onBookClickListener.onBookClick(book);
+            }
+
+        });
 
         // Cover loading will be added later.
     }

@@ -28,6 +28,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        isCoreLibraryDesugaringEnabled = true
     }
 }
 
@@ -42,4 +43,10 @@ dependencies {
 
     implementation("androidx.room:room-runtime:2.6.1")
     annotationProcessor("androidx.room:room-compiler:2.6.1")
+
+    implementation("org.readium.kotlin-toolkit:readium-shared:3.3.0")
+    implementation("org.readium.kotlin-toolkit:readium-streamer:3.3.0")
+    implementation("org.readium.kotlin-toolkit:readium-navigator:3.3.0")
+
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
