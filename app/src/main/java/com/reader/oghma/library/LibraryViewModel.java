@@ -30,8 +30,7 @@ public class LibraryViewModel extends AndroidViewModel {
         return books;
     }
 
-    //temp
-    public void addTestBook() {
-        repository.insertTestBook();
+    public BookRepository getRepository() {
+        return repository;
     }
 }

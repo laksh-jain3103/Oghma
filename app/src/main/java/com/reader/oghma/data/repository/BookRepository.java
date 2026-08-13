@@ -38,24 +38,14 @@ public class BookRepository {
         });
     }
 
-    public Book getBook(int bookId) {
-
-        return bookDao.getById(bookId);
+    public interface BookCallback {
+        void onBookLoaded(Book book);
     }
 
-    public void insertTestBook() {
-
-        Book book = new Book();
-
-        book.title = "The Great Test Book";
-        book.author = "Oghma";
-        book.filePath = "";
-        book.coverPath = "";
-        book.format = "EPUB";
-        book.addedAt = System.currentTimeMillis();
-
+    public void getBook(int bookId, BookCallback callback) {
         executor.execute(() -> {
-            bookDao.insert(book);
+            Book book = bookDao.getById(bookId);
+            callback.onBookLoaded(book);
         });
     }
 }

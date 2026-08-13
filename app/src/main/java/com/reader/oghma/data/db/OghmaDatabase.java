@@ -29,6 +29,14 @@ public abstract class OghmaDatabase extends RoomDatabase {
 
     public static OghmaDatabase getInstance(Context context) {
 
+        INSTANCE = Room.databaseBuilder(
+                context.getApplicationContext(),
+                OghmaDatabase.class,
+                "oghma_database"
+        )
+                .fallbackToDestructiveMigration()
+                .build();
+
         if (INSTANCE == null) {
 
             synchronized (OghmaDatabase.class) {

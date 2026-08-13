@@ -5,16 +5,23 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageButton;
-
+import android.net.Uri;
+import android.database.Cursor;
+import android.provider.OpenableColumns;
+import java.io.InputStream;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.reader.oghma.R;
+
+
 
 public class LibraryFragment extends Fragment {
 
@@ -26,9 +33,35 @@ public class LibraryFragment extends Fragment {
     private FloatingActionButton addBookButton;
     private ImageButton searchButton;
 
+    private ActivityResultLauncher<String[]> filePickerLauncher;
+
+    private BookIngestor bookIngestor;
+
+
+
     public LibraryFragment() {
         // Required empty constructor
     }
+
+
+    @Override
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+
+        super.onCreate(savedInstanceState);
+
+        filePickerLauncher =
+                registerForActivityResult(
+                        new ActivityResultContracts.OpenDocument(),
+                        uri -> {
+
+                            if (uri != null) {
+                                importBook(uri);
+                            }
+
+                        }
+                );
+    }
+
 
     @Nullable
     @Override
@@ -58,6 +91,12 @@ public class LibraryFragment extends Fragment {
 
         setupRecyclerView();
         setupViewModel();
+
+        bookIngestor = new BookIngestor(
+                requireContext(),
+                viewModel.getRepository()
+        );
+
         setupButtons();
     }
 
@@ -100,13 +139,111 @@ public class LibraryFragment extends Fragment {
     private void setupButtons() {
 
         addBookButton.setOnClickListener(v -> {
-                viewModel.addTestBook();
+
+            filePickerLauncher.launch(
+                    new String[]{
+                            "application/epub+zip",
+                            "application/pdf",
+                            "text/plain"
+                    }
+            );
+
         });
+
 
         searchButton.setOnClickListener(v -> {
 
             // Search will be added later.
 
         });
+    }
+
+    private void importBook(Uri uri) {
+
+        String fileName = getFileName(uri);
+
+        if (fileName == null) {
+            return;
+        }
+
+        String format = getFormat(fileName);
+
+        if (format == null) {
+            return;
+        }
+
+        try {
+
+            InputStream inputStream =
+                    requireContext()
+                            .getContentResolver()
+                            .openInputStream(uri);
+
+            if (inputStream == null) {
+                return;
+            }
+
+            bookIngestor.importBook(
+                    inputStream,
+                    fileName,
+                    format
+            );
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+        }
+    }
+
+    private String getFileName(Uri uri) {
+
+        String fileName = null;
+
+        Cursor cursor = requireContext()
+                .getContentResolver()
+                .query(
+                        uri,
+                        null,
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor != null) {
+            try {
+                if (cursor.moveToFirst()) {
+                    int nameIndex =
+                            cursor.getColumnIndex(
+                                    OpenableColumns.DISPLAY_NAME
+                            );
+                    if (nameIndex >= 0) {
+                        fileName = cursor.getString(nameIndex);
+                    }
+                }
+            } finally {
+                cursor.close();
+            }
+        }
+
+        return fileName;
+    }
+
+    private String getFormat(String fileName) {
+
+        String lowerName = fileName.toLowerCase();
+
+        if (lowerName.endsWith(".epub")) {
+            return "epub";
+        }
+
+        if (lowerName.endsWith(".pdf")) {
+            return "pdf";
+        }
+
+        if (lowerName.endsWith(".txt")) {
+            return "txt";
+        }
+
+        return null;
     }
 }
