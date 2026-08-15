@@ -20,13 +20,19 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 
+import android.widget.FrameLayout;
+import androidx.fragment.app.FragmentFactory;
+import org.readium.r2.navigator.epub.EpubNavigatorFragment;
+
 public class ReaderFragment extends Fragment {
 
     private TextView readerText;
     private TextView readerTitle;
     private ImageButton backButton;
+    private FrameLayout readerContainer;
 
     private BookRepository repository;
+    private EpubReaderBridge epubReaderBridge;
 
     public ReaderFragment() {
         // Required empty constructor
@@ -63,6 +69,14 @@ public class ReaderFragment extends Fragment {
 
         backButton = view.findViewById(
                 R.id.backButton
+        );
+
+        readerContainer = view.findViewById(
+                R.id.readerContainer
+        );
+
+        epubReaderBridge = new EpubReaderBridge(
+                requireContext()
         );
 
         repository = new BookRepository(
@@ -168,11 +182,64 @@ public class ReaderFragment extends Fragment {
 
     private void displayEpubBook(Book book) {
 
+        File epubFile = new File(book.filePath);
+
+        if (!epubFile.exists()) {
+
+            readerText.setText(
+                    "The EPUB file could not be found."
+            );
+
+            return;
+        }
+
         readerText.setText(
                 "EPUB reader is being loaded..."
         );
 
-        // Readium EPUB implementation will go here.
+        epubReaderBridge.openEpub(
+                epubFile,
+                new EpubReaderBridge.Callback() {
+
+                    @Override
+                    public void onSuccess(
+                            FragmentFactory factory
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        getChildFragmentManager()
+                                .setFragmentFactory(factory);
+
+                        getChildFragmentManager()
+                                .beginTransaction()
+                                .replace(
+                                        R.id.readerContainer,
+                                        EpubNavigatorFragment.class,
+                                        null,
+                                        "epub_navigator"
+                                )
+                                .commit();
+                    }
+
+                    @Override
+                    public void onError(
+                            String message
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        readerText.setText(
+                                "Could not open EPUB:\n\n"
+                                        + message
+                        );
+                    }
+                }
+        );
     }
 
     private String readTextFile(File file)

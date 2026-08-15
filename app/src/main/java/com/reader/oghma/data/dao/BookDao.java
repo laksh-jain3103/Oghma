@@ -2,6 +2,7 @@ package com.reader.oghma.data.dao;
 
 import androidx.lifecycle.LiveData;
 import androidx.room.Dao;
+import androidx.room.Delete;
 import androidx.room.Insert;
 import androidx.room.Query;
 
@@ -14,6 +15,12 @@ public interface BookDao {
 
     @Insert
     void insert(Book book);
+
+    @Delete
+    void delete(Book book);
+
+    @Query("DELETE FROM Book WHERE bookId = :bookId")
+    void deleteById(int bookId);
 
     @Query("SELECT * FROM Book ORDER BY addedAt DESC")
     LiveData<List<Book>> getAll();

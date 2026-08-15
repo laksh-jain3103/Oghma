@@ -97,8 +97,40 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/libraryHeader" />
 
-    <!-- Add book -->
+    <!-- View -->
 
+    <ImageButton
+        android:id="@+id/viewModeButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginBottom="84dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Change library view"
+        android:padding="12dp"
+        android:src="@drawable/ic_view_list"
+        android:tint="@color/text_primary"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Sort -->
+
+    <ImageButton
+        android:id="@+id/sortButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginBottom="136dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Sort library"
+        android:padding="12dp"
+        android:src="@android:drawable/ic_menu_sort_by_size"
+        android:tint="@color/text_primary"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Add book -->
+2
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/addBookButton"
         android:layout_width="wrap_content"

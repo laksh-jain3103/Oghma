@@ -35,7 +35,20 @@ public class BookRepository {
 
         executor.execute(() -> {
             bookDao.insert(book);
+        });
+    }
 
+    public void deleteBook(Book book) {
+
+        executor.execute(() -> {
+            bookDao.delete(book);
+        });
+    }
+
+    public void deleteBookById(int bookId) {
+
+        executor.execute(() -> {
+            bookDao.deleteById(bookId);
         });
     }
 
@@ -43,9 +56,16 @@ public class BookRepository {
         void onBookLoaded(Book book);
     }
 
-    public void getBook(int bookId, BookCallback callback) {
+    public void getBook(
+            int bookId,
+            BookCallback callback
+    ) {
+
         executor.execute(() -> {
-            Book book = bookDao.getById(bookId);
+
+            Book book =
+                    bookDao.getById(bookId);
+
             callback.onBookLoaded(book);
         });
     }

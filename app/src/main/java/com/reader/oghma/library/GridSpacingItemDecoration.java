@@ -1,4 +1,42 @@
 package com.reader.oghma.library;
 
-public class GridSpacingItemDecoration {
+import android.graphics.Rect;
+import android.view.View;
+
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.RecyclerView;
+
+public class GridSpacingItemDecoration
+        extends RecyclerView.ItemDecoration {
+
+    private final int spacing;
+
+    public GridSpacingItemDecoration(int spacing) {
+        this.spacing = spacing;
+    }
+
+    @Override
+    public void getItemOffsets(
+            @NonNull Rect outRect,
+            @NonNull View view,
+            @NonNull RecyclerView parent,
+            @NonNull RecyclerView.State state
+    ) {
+
+        int position =
+                parent.getChildAdapterPosition(view);
+
+        int column =
+                position % 2;
+
+        outRect.left =
+                spacing
+                        - column * spacing / 2;
+
+        outRect.right =
+                (column + 1) * spacing / 2;
+
+        outRect.top = spacing;
+        outRect.bottom = spacing;
+    }
 }
