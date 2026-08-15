@@ -1,4 +1,4 @@
-package com.laksh.oghma;
+package com.reader.oghma;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;

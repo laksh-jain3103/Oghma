@@ -4,18 +4,18 @@ plugins {
 }
 
 android {
-    namespace = "com.laksh.oghma"
+    namespace = "com.reader.oghma"
+
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.laksh.oghma"
+        applicationId = "com.reader.oghma"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
-;
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

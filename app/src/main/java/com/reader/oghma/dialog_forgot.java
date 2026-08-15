@@ -1,4 +1,4 @@
-package com.laksh.oghma;
+package com.reader.oghma;
 
 import android.os.Bundle;
 

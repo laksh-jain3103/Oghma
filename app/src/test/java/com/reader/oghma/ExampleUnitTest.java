@@ -1,4 +1,4 @@
-package com.laksh.oghma;
+package com.reader.oghma;
 
 import org.junit.Test;
 
