@@ -1,7 +1,11 @@
 package com.reader.oghma.library;
 
 import android.content.Context;
-
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.pdf.PdfRenderer;
+import android.os.ParcelFileDescriptor;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.repository.BookRepository;
 import com.reader.oghma.reader.EpubReaderBridge;
@@ -124,10 +128,40 @@ public class BookIngestor {
                             book
                     );
 
+                } else if (
+                        "pdf".equalsIgnoreCase(
+                                format
+                        )
+                ) {
+
+                    File generatedThumbnail =
+                            generatePdfThumbnail(
+                                    destination
+                            );
+
+                    if (
+                            generatedThumbnail != null
+                                    && generatedThumbnail.exists()
+                    ) {
+
+                        book.coverPath =
+                                generatedThumbnail
+                                        .getAbsolutePath();
+
+                    } else {
+
+                        book.coverPath =
+                                "";
+                    }
+
+                    repository.insertBook(
+                            book
+                    );
+
                 } else {
 
-                    // PDFs and TXT files don't
-                    // have cover generation yet.
+                    // TXT files do not
+                    // have a thumbnail.
 
                     book.coverPath = "";
 
@@ -148,6 +182,257 @@ public class BookIngestor {
         });
     }
 
+    private File generatePdfThumbnail(
+            File pdfFile
+    ) {
+
+        ParcelFileDescriptor fileDescriptor =
+                null;
+
+        PdfRenderer renderer =
+                null;
+
+        PdfRenderer.Page page =
+                null;
+
+        Bitmap bitmap =
+                null;
+
+        try {
+
+            // -----------------------------------------
+            // Create covers directory
+            // -----------------------------------------
+
+            File coversDirectory =
+                    new File(
+                            context.getFilesDir(),
+                            "covers"
+                    );
+
+            if (!coversDirectory.exists()) {
+
+                if (!coversDirectory.mkdirs()
+                        && !coversDirectory.exists()) {
+
+                    System.out.println(
+                            "PDF THUMBNAIL: Could not create covers directory"
+                    );
+
+                    return null;
+                }
+            }
+
+
+            // -----------------------------------------
+            // Create thumbnail filename
+            // -----------------------------------------
+
+            String thumbnailFileName =
+                    removeExtension(
+                            pdfFile.getName()
+                    ) + "_cover.jpg";
+
+
+            File thumbnailFile =
+                    new File(
+                            coversDirectory,
+                            thumbnailFileName
+                    );
+
+
+            System.out.println(
+                    "PDF THUMBNAIL: Starting extraction"
+            );
+
+
+            // -----------------------------------------
+            // Open PDF
+            // -----------------------------------------
+
+            fileDescriptor =
+                    ParcelFileDescriptor.open(
+                            pdfFile,
+                            ParcelFileDescriptor.MODE_READ_ONLY
+                    );
+
+            renderer =
+                    new PdfRenderer(
+                            fileDescriptor
+                    );
+
+
+            if (renderer.getPageCount() == 0) {
+
+                System.out.println(
+                        "PDF THUMBNAIL: PDF has no pages"
+                );
+
+                return null;
+            }
+
+
+            // -----------------------------------------
+            // Open first page
+            // -----------------------------------------
+
+            page =
+                    renderer.openPage(0);
+
+
+            // -----------------------------------------
+            // Calculate thumbnail size
+            //
+            // Keep the page's aspect ratio.
+            // -----------------------------------------
+
+            int targetWidth =
+                    600;
+
+            int targetHeight =
+                    Math.round(
+                            page.getHeight()
+                                    * (
+                                    targetWidth
+                                            / (float) page.getWidth()
+                            )
+                    );
+
+            if (targetHeight > 900) {
+
+                float scale =
+                        900f
+                                / targetHeight;
+
+                targetWidth =
+                        Math.round(
+                                targetWidth
+                                        * scale
+                        );
+
+                targetHeight =
+                        900;
+            }
+
+
+            // -----------------------------------------
+            // Create bitmap
+            // -----------------------------------------
+
+            bitmap =
+                    Bitmap.createBitmap(
+                            targetWidth,
+                            targetHeight,
+                            Bitmap.Config.ARGB_8888
+                    );
+
+
+            // -----------------------------------------
+            // Give PDF page a white background
+            // -----------------------------------------
+
+            Canvas canvas =
+                    new Canvas(
+                            bitmap
+                    );
+
+            canvas.drawColor(
+                    Color.WHITE
+            );
+
+
+            // -----------------------------------------
+            // Render page into bitmap
+            // -----------------------------------------
+
+            page.render(
+                    bitmap,
+                    null,
+                    null,
+                    PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
+            );
+
+
+            // -----------------------------------------
+            // Save JPEG
+            // -----------------------------------------
+
+            try (
+                    FileOutputStream output =
+                            new FileOutputStream(
+                                    thumbnailFile
+                            )
+            ) {
+
+                bitmap.compress(
+                        Bitmap.CompressFormat.JPEG,
+                        90,
+                        output
+                );
+            }
+
+
+            System.out.println(
+                    "PDF THUMBNAIL CREATED: "
+                            + thumbnailFile
+                            .getAbsolutePath()
+            );
+
+            System.out.println(
+                    "PDF THUMBNAIL EXISTS: "
+                            + thumbnailFile.exists()
+            );
+
+
+            return thumbnailFile;
+
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            System.out.println(
+                    "PDF THUMBNAIL ERROR: "
+                            + e.getMessage()
+            );
+
+            return null;
+
+
+        } finally {
+
+            // -----------------------------------------
+            // Close everything
+            // -----------------------------------------
+
+            if (page != null) {
+
+                page.close();
+            }
+
+            if (renderer != null) {
+
+                renderer.close();
+            }
+
+            if (fileDescriptor != null) {
+
+                try {
+
+                    fileDescriptor.close();
+
+                } catch (IOException e) {
+
+                    e.printStackTrace();
+                }
+            }
+
+            if (bitmap != null) {
+
+                bitmap.recycle();
+            }
+        }
+    }
 
     private void extractEpubCover(
             File epubFile,

@@ -37,9 +37,13 @@ public class ReaderFragment extends Fragment {
     private BookmarkRepository bookmarkRepository;
     private EpubReaderBridge epubReaderBridge;
 
+    private PdfReaderBridge pdfReaderBridge;
+
     private EpubNavigatorFragment epubNavigator;
 
     private int currentBookId = -1;
+
+    private String bookmarkLocator;
 
 
     public ReaderFragment() {
@@ -104,6 +108,10 @@ public class ReaderFragment extends Fragment {
                         requireContext()
                 );
 
+        pdfReaderBridge =
+                new PdfReaderBridge(
+                        requireContext()
+                );
 
         repository =
                 new BookRepository(
@@ -153,6 +161,11 @@ public class ReaderFragment extends Fragment {
                         -1
                 );
 
+        bookmarkLocator =
+                args.getString(
+                        "bookmarkLocator",
+                        null
+                );
 
         if (bookId == -1) {
 
@@ -235,6 +248,16 @@ public class ReaderFragment extends Fragment {
             return;
         }
 
+        if (
+                "pdf".equalsIgnoreCase(
+                        book.format
+                )
+        ) {
+
+            displayPdfBook(book);
+
+            return;
+        }
 
         readerText.setText(
                 "This format is not supported yet."
@@ -464,6 +487,82 @@ public class ReaderFragment extends Fragment {
         );
     }
 
+    private void displayPdfBook(
+            Book book
+    ) {
+
+        File pdfFile =
+                new File(
+                        book.filePath
+                );
+
+        if (!pdfFile.exists()) {
+
+            readerText.setText(
+                    "The PDF file could not be found."
+            );
+
+            return;
+        }
+
+        readerText.setText(
+                "PDF reader is being loaded..."
+        );
+
+        pdfReaderBridge.openPdf(
+                pdfFile,
+                new PdfReaderBridge.Callback() {
+
+                    @Override
+                    public void onSuccess(
+                            FragmentFactory factory
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        getChildFragmentManager()
+                                .setFragmentFactory(
+                                        factory
+                                );
+
+                        getChildFragmentManager()
+                                .beginTransaction()
+                                .replace(
+                                        R.id.readerContainer,
+                                        org.readium.r2.navigator.pdf.PdfNavigatorFragment.class,
+                                        null,
+                                        "pdf_navigator"
+                                )
+                                .commit();
+
+                        readerText.setVisibility(
+                                View.GONE
+                        );
+                    }
+
+                    @Override
+                    public void onError(
+                            String message
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        readerText.setVisibility(
+                                View.VISIBLE
+                        );
+
+                        readerText.setText(
+                                "Could not open PDF:\n\n"
+                                        + message
+                        );
+                    }
+                }
+        );
+    }
 
     private String readTextFile(
             File file

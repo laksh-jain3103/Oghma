@@ -266,6 +266,12 @@ public class LibraryFragment extends Fragment {
         bookmarkAdapter =
                 new BookmarkAdapter();
 
+        bookmarkAdapter.setOnBookmarkClickListener(
+                bookmark -> openBookmark(
+                        bookmark
+                )
+        );
+
         bookmarksRecyclerView.setLayoutManager(
                 new LinearLayoutManager(
                         requireContext()
@@ -398,6 +404,40 @@ public class LibraryFragment extends Fragment {
         );
     }
 
+    private void openBookmark(
+            Bookmark bookmark
+    ) {
+
+        Bundle args =
+                new Bundle();
+
+        args.putInt(
+                "bookId",
+                bookmark.bookId
+        );
+
+        args.putString(
+                "bookmarkLocator",
+                bookmark.locatorJson
+        );
+
+        ReaderFragment readerFragment =
+                new ReaderFragment();
+
+        readerFragment.setArguments(
+                args
+        );
+
+        requireActivity()
+                .getSupportFragmentManager()
+                .beginTransaction()
+                .replace(
+                        R.id.fragmentContainer,
+                        readerFragment
+                )
+                .addToBackStack(null)
+                .commit();
+    }
 
     // =========================================================
     // Open book
@@ -738,7 +778,6 @@ public class LibraryFragment extends Fragment {
 
                     allBooks.clear();
 
-
                     if (books != null) {
 
                         allBooks.addAll(
@@ -746,6 +785,12 @@ public class LibraryFragment extends Fragment {
                         );
                     }
 
+                    // Give BookmarkAdapter the complete
+                    // library list, not search results.
+
+                    bookmarkAdapter.setBooks(
+                            allBooks
+                    );
 
                     // -----------------------------------------
                     // Apply current search
