@@ -7,7 +7,7 @@ android {
     namespace = "com.reader.oghma"
     compileSdk {
         version = release(37)
-    } 
+    }
 
     defaultConfig {
         applicationId = "com.reader.oghma"

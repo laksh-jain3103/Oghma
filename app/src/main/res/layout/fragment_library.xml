@@ -8,7 +8,10 @@
     android:background="@color/background"
     android:fitsSystemWindows="true">
 
-    <!-- Library header -->
+
+    <!-- ===================================================== -->
+    <!-- Top header -->
+    <!-- ===================================================== -->
 
     <LinearLayout
         android:id="@+id/libraryHeader"
@@ -18,22 +21,28 @@
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="20dp"
-        android:paddingTop="12dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="12dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="8dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
+
+
+        <!-- Oghma -->
 
         <TextView
             android:id="@+id/libraryTitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Library"
+            android:text="Oghma"
             android:textColor="@color/text_primary"
             android:textSize="28sp"
             android:textStyle="bold" />
+
+
+        <!-- Search -->
 
         <ImageButton
             android:id="@+id/searchButton"
@@ -45,9 +54,38 @@
             android:src="@android:drawable/ic_menu_search"
             android:tint="@color/text_secondary" />
 
+
+        <!-- Sort -->
+
+        <ImageButton
+            android:id="@+id/sortButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Sort library"
+            android:padding="12dp"
+            android:src="@android:drawable/ic_menu_sort_by_size"
+            android:tint="@color/text_secondary" />
+
+
+        <!-- Settings -->
+
+        <ImageButton
+            android:id="@+id/settingsButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Settings"
+            android:padding="12dp"
+            android:src="@android:drawable/ic_menu_preferences"
+            android:tint="@color/text_secondary" />
+
     </LinearLayout>
 
+
+    <!-- ===================================================== -->
     <!-- Empty library -->
+    <!-- ===================================================== -->
 
     <LinearLayout
         android:id="@+id/emptyLibrary"
@@ -56,10 +94,11 @@
         android:gravity="center"
         android:orientation="vertical"
         android:padding="32dp"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/libraryHeader">
+
 
         <TextView
             android:layout_width="wrap_content"
@@ -68,6 +107,7 @@
             android:textColor="@color/text_primary"
             android:textSize="22sp"
             android:textStyle="bold" />
+
 
         <TextView
             android:layout_width="wrap_content"
@@ -80,67 +120,80 @@
 
     </LinearLayout>
 
+
+    <!-- ===================================================== -->
     <!-- Books -->
+    <!-- ===================================================== -->
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/bookRecyclerView"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:clipToPadding="false"
-        android:paddingStart="16dp"
-        android:paddingTop="12dp"
-        android:paddingEnd="16dp"
+        android:paddingStart="10dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="10dp"
         android:paddingBottom="96dp"
         android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/libraryHeader" />
 
-    <!-- View -->
+
+    <!-- ===================================================== -->
+    <!-- View mode -->
+    <!-- ===================================================== -->
 
     <ImageButton
         android:id="@+id/viewModeButton"
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:layout_marginEnd="20dp"
-        android:layout_marginBottom="84dp"
+        android:layout_marginBottom="132dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="Change library view"
         android:padding="12dp"
         android:src="@drawable/ic_view_list"
         android:tint="@color/text_primary"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Sort -->
 
-    <ImageButton
-        android:id="@+id/sortButton"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_marginEnd="20dp"
-        android:layout_marginBottom="136dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Sort library"
-        android:padding="12dp"
-        android:src="@android:drawable/ic_menu_sort_by_size"
-        android:tint="@color/text_primary"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
-
+    <!-- ===================================================== -->
     <!-- Add book -->
-2
+    <!-- ===================================================== -->
+
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/addBookButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="20dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginBottom="76dp"
         android:contentDescription="Add book"
         android:src="@android:drawable/ic_input_add"
         android:tint="@color/on_primary"
         app:backgroundTint="@color/primary"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
         app:layout_constraintEnd_toEndOf="parent" />
+
+
+    <!-- ===================================================== -->
+    <!-- Bottom navigation -->
+    <!-- ===================================================== -->
+
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNavigation"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:background="@color/background_deep"
+        android:elevation="8dp"
+        app:itemIconTint="@color/text_secondary"
+        app:itemTextColor="@color/text_secondary"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/library_navigation_menu"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

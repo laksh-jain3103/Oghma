@@ -20,12 +20,12 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
+import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.reader.ReaderFragment;
-
+import java.io.File;
 import java.io.InputStream;
 
 
@@ -54,6 +54,10 @@ public class LibraryFragment extends Fragment {
     private ActivityResultLauncher<String[]> filePickerLauncher;
 
     private BookIngestor bookIngestor;
+
+    private BottomNavigationView bottomNavigation;
+
+    private ImageButton settingsButton;
 
 
     public LibraryFragment() {
@@ -158,6 +162,16 @@ public class LibraryFragment extends Fragment {
                         R.id.sortButton
                 );
 
+        settingsButton =
+                view.findViewById(
+                        R.id.settingsButton
+                );
+
+        bottomNavigation =
+                view.findViewById(
+                        R.id.bottomNavigation
+                );
+
 
         // Grid spacing
 
@@ -257,10 +271,9 @@ public class LibraryFragment extends Fragment {
                 .commit();
     }
 
-
     // =========================================================
-    // Three-dot menu
-    // =========================================================
+// Three-dot menu
+// =========================================================
 
     private void showBookMenu(Book book) {
 
@@ -269,28 +282,21 @@ public class LibraryFragment extends Fragment {
                 "Remove from library"
         };
 
-
         new AlertDialog.Builder(
                 requireContext()
         )
-                .setTitle(
-                        book.title
-                )
+                .setTitle(book.title)
                 .setItems(
                         options,
                         (dialog, which) -> {
 
                             if (which == 0) {
 
-                                showBookDetails(
-                                        book
-                                );
+                                showBookDetails(book);
 
                             } else if (which == 1) {
 
-                                confirmRemoveBook(
-                                        book
-                                );
+                                confirmRemoveBook(book);
                             }
                         }
                 )
@@ -298,9 +304,9 @@ public class LibraryFragment extends Fragment {
     }
 
 
-    // =========================================================
-    // Book details
-    // =========================================================
+// =========================================================
+// Book details
+// =========================================================
 
     private void showBookDetails(Book book) {
 
@@ -309,12 +315,10 @@ public class LibraryFragment extends Fragment {
                         ? book.author
                         : "Unknown author";
 
-
         String format =
                 book.format != null
                         ? book.format.toUpperCase()
                         : "Unknown";
-
 
         String details =
                 "Title: "
@@ -332,16 +336,11 @@ public class LibraryFragment extends Fragment {
                         + "\n\n"
                         + "Tags: None";
 
-
         new AlertDialog.Builder(
                 requireContext()
         )
-                .setTitle(
-                        "Book details"
-                )
-                .setMessage(
-                        details
-                )
+                .setTitle("Book details")
+                .setMessage(details)
                 .setPositiveButton(
                         "Open book",
                         (dialog, which) ->
@@ -355,18 +354,16 @@ public class LibraryFragment extends Fragment {
     }
 
 
-    // =========================================================
-    // Remove confirmation
-    // =========================================================
+// =========================================================
+// Remove confirmation
+// =========================================================
 
     private void confirmRemoveBook(Book book) {
 
         new AlertDialog.Builder(
                 requireContext()
         )
-                .setTitle(
-                        "Remove book?"
-                )
+                .setTitle("Remove book?")
                 .setMessage(
                         "Remove \""
                                 + book.title
@@ -385,15 +382,74 @@ public class LibraryFragment extends Fragment {
     }
 
 
-    // =========================================================
-    // Remove book
-    // =========================================================
+// =========================================================
+// Remove book
+// =========================================================
 
     private void removeBook(Book book) {
+
+        // --------------------------------
+        // Delete database record
+        // --------------------------------
 
         viewModel
                 .getRepository()
                 .deleteBook(book);
+
+
+        // --------------------------------
+        // Delete Oghma's copied book file
+        // --------------------------------
+
+        if (
+                book.filePath != null
+                        && !book.filePath.isEmpty()
+        ) {
+
+            File bookFile =
+                    new File(book.filePath);
+
+            if (bookFile.exists()) {
+
+                boolean deleted =
+                        bookFile.delete();
+
+                if (!deleted) {
+
+                    bookFile.deleteOnExit();
+                }
+            }
+        }
+
+
+        // --------------------------------
+        // Delete Oghma's generated cover
+        // --------------------------------
+
+        if (
+                book.coverPath != null
+                        && !book.coverPath.isEmpty()
+        ) {
+
+            File coverFile =
+                    new File(book.coverPath);
+
+            if (coverFile.exists()) {
+
+                boolean deleted =
+                        coverFile.delete();
+
+                if (!deleted) {
+
+                    coverFile.deleteOnExit();
+                }
+            }
+        }
+
+
+        // --------------------------------
+        // Tell user
+        // --------------------------------
 
         Toast.makeText(
                 requireContext(),
@@ -546,7 +602,55 @@ public class LibraryFragment extends Fragment {
                     // Sorting will be added later.
                 }
         );
+
+        settingsButton.setOnClickListener(
+                v -> {
+
+                    Toast.makeText(
+                            requireContext(),
+                            "Settings coming later",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                }
+        );
+
+        bottomNavigation.setOnItemSelectedListener(
+                item -> {
+
+                    int itemId = item.getItemId();
+
+                    if (itemId == R.id.nav_library) {
+
+                        return true;
+
+                    } else if (itemId == R.id.nav_bookmarks) {
+
+                        Toast.makeText(
+                                requireContext(),
+                                "Bookmarks coming later",
+                                Toast.LENGTH_SHORT
+                        ).show();
+
+                        return false;
+
+                    } else if (itemId == R.id.nav_find_more) {
+
+                        Toast.makeText(
+                                requireContext(),
+                                "Find More coming later",
+                                Toast.LENGTH_SHORT
+                        ).show();
+
+                        return false;
+                    }
+
+                    return false;
+                }
+        );
+
     }
+
+
 
 
     // =========================================================
