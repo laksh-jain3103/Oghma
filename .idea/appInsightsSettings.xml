@@ -9,8 +9,8 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="com.laksh.oghma" />
-                  <option name="mobileSdkAppId" value="1:455407069815:android:ca99d575cf0ef535063472" />
+                  <option name="appId" value="com.reader.oghma" />
+                  <option name="mobileSdkAppId" value="1:455407069815:android:f9b69af720219a64063472" />
                   <option name="projectId" value="auth-7d798" />
                   <option name="projectNumber" value="455407069815" />
                 </ConnectionSetting>
