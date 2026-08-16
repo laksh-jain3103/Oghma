@@ -4,25 +4,27 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentFactory;
 
 import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.repository.BookRepository;
+import com.reader.oghma.data.repository.BookmarkRepository;
+import com.reader.oghma.data.entity.Bookmark;
+import org.readium.r2.navigator.epub.EpubNavigatorFragment;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-
-import android.widget.FrameLayout;
-import androidx.fragment.app.FragmentFactory;
-import org.readium.r2.navigator.epub.EpubNavigatorFragment;
 
 public class ReaderFragment extends Fragment {
 
@@ -32,18 +34,26 @@ public class ReaderFragment extends Fragment {
     private FrameLayout readerContainer;
 
     private BookRepository repository;
+    private BookmarkRepository bookmarkRepository;
     private EpubReaderBridge epubReaderBridge;
+
+    private EpubNavigatorFragment epubNavigator;
+
+    private int currentBookId = -1;
+
 
     public ReaderFragment() {
         // Required empty constructor
     }
+
 
     @Nullable
     @Override
     public View onCreateView(
             @NonNull LayoutInflater inflater,
             @Nullable ViewGroup container,
-            @Nullable Bundle savedInstanceState) {
+            @Nullable Bundle savedInstanceState
+    ) {
 
         return inflater.inflate(
                 R.layout.fragment_reader,
@@ -52,61 +62,111 @@ public class ReaderFragment extends Fragment {
         );
     }
 
+
     @Override
     public void onViewCreated(
             @NonNull View view,
-            @Nullable Bundle savedInstanceState) {
+            @Nullable Bundle savedInstanceState
+    ) {
 
-        super.onViewCreated(view, savedInstanceState);
-
-        readerText = view.findViewById(
-                R.id.readerText
+        super.onViewCreated(
+                view,
+                savedInstanceState
         );
 
-        readerTitle = view.findViewById(
-                R.id.readerTitle
+
+        readerText =
+                view.findViewById(
+                        R.id.readerText
+                );
+
+
+        readerTitle =
+                view.findViewById(
+                        R.id.readerTitle
+                );
+
+
+        backButton =
+                view.findViewById(
+                        R.id.backButton
+                );
+
+
+        readerContainer =
+                view.findViewById(
+                        R.id.readerContainer
+                );
+
+
+        epubReaderBridge =
+                new EpubReaderBridge(
+                        requireContext()
+                );
+
+
+        repository =
+                new BookRepository(
+                        requireActivity()
+                                .getApplication()
+                );
+
+
+        bookmarkRepository =
+                new BookmarkRepository(
+                        requireActivity()
+                                .getApplication()
+                );
+
+
+        backButton.setOnClickListener(
+                v ->
+                        requireActivity()
+                                .getSupportFragmentManager()
+                                .popBackStack()
         );
 
-        backButton = view.findViewById(
-                R.id.backButton
-        );
-
-        readerContainer = view.findViewById(
-                R.id.readerContainer
-        );
-
-        epubReaderBridge = new EpubReaderBridge(
-                requireContext()
-        );
-
-        repository = new BookRepository(
-                requireActivity().getApplication()
-        );
-
-        backButton.setOnClickListener(v ->
-                requireActivity()
-                        .getSupportFragmentManager()
-                        .popBackStack()
-        );
 
         loadBook();
     }
 
+
     private void loadBook() {
 
-        Bundle args = getArguments();
+        Bundle args =
+                getArguments();
+
 
         if (args == null) {
-            readerText.setText("No book selected.");
+
+            readerText.setText(
+                    "No book selected."
+            );
+
             return;
         }
 
-        int bookId = args.getInt("bookId", -1);
+
+        int bookId =
+                args.getInt(
+                        "bookId",
+                        -1
+                );
+
 
         if (bookId == -1) {
-            readerText.setText("Invalid book.");
+
+            readerText.setText(
+                    "Invalid book."
+            );
+
             return;
         }
+
+
+        currentBookId =
+                bookId;
+
 
         repository.getBook(
                 bookId,
@@ -114,46 +174,83 @@ public class ReaderFragment extends Fragment {
 
                     if (book == null) {
 
-                        requireActivity().runOnUiThread(() ->
-                                readerText.setText(
-                                        "Book not found."
-                                )
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        requireActivity().runOnUiThread(
+                                () ->
+                                        readerText.setText(
+                                                "Book not found."
+                                        )
                         );
 
                         return;
                     }
 
-                    requireActivity().runOnUiThread(() ->
-                            displayBook(book)
+
+                    if (!isAdded()) {
+                        return;
+                    }
+
+
+                    requireActivity().runOnUiThread(
+                            () ->
+                                    displayBook(book)
                     );
                 }
         );
     }
 
-    private void displayBook(Book book) {
 
-        readerTitle.setText(book.title);
+    private void displayBook(
+            Book book
+    ) {
 
-        if ("txt".equalsIgnoreCase(book.format)) {
+        readerTitle.setText(
+                book.title
+        );
+
+
+        if (
+                "txt".equalsIgnoreCase(
+                        book.format
+                )
+        ) {
 
             displayTxtBook(book);
+
             return;
         }
 
-        if ("epub".equalsIgnoreCase(book.format)) {
+
+        if (
+                "epub".equalsIgnoreCase(
+                        book.format
+                )
+        ) {
 
             displayEpubBook(book);
+
             return;
         }
+
 
         readerText.setText(
                 "This format is not supported yet."
         );
     }
 
-    private void displayTxtBook(Book book) {
 
-        File file = new File(book.filePath);
+    private void displayTxtBook(
+            Book book
+    ) {
+
+        File file =
+                new File(
+                        book.filePath
+                );
+
 
         if (!file.exists()) {
 
@@ -164,11 +261,15 @@ public class ReaderFragment extends Fragment {
             return;
         }
 
+
         try {
 
-            String content = readTextFile(file);
+            String content =
+                    readTextFile(file);
 
-            readerText.setText(content);
+            readerText.setText(
+                    content
+            );
 
         } catch (IOException e) {
 
@@ -180,9 +281,16 @@ public class ReaderFragment extends Fragment {
         }
     }
 
-    private void displayEpubBook(Book book) {
 
-        File epubFile = new File(book.filePath);
+    private void displayEpubBook(
+            Book book
+    ) {
+
+        File epubFile =
+                new File(
+                        book.filePath
+                );
+
 
         if (!epubFile.exists()) {
 
@@ -193,13 +301,22 @@ public class ReaderFragment extends Fragment {
             return;
         }
 
+
         readerText.setText(
                 "EPUB reader is being loaded..."
         );
 
+
         epubReaderBridge.openEpub(
                 epubFile,
                 new EpubReaderBridge.Callback() {
+
+                    @Override
+                    public void onBookmarkRequested() {
+
+                        handleBookmarkRequest();
+                    }
+
 
                     @Override
                     public void onSuccess(
@@ -210,8 +327,12 @@ public class ReaderFragment extends Fragment {
                             return;
                         }
 
+
                         getChildFragmentManager()
-                                .setFragmentFactory(factory);
+                                .setFragmentFactory(
+                                        factory
+                                );
+
 
                         getChildFragmentManager()
                                 .beginTransaction()
@@ -222,7 +343,20 @@ public class ReaderFragment extends Fragment {
                                         "epub_navigator"
                                 )
                                 .commit();
+
+
+                        getChildFragmentManager()
+                                .executePendingTransactions();
+
+
+                        epubNavigator =
+                                (EpubNavigatorFragment)
+                                        getChildFragmentManager()
+                                                .findFragmentByTag(
+                                                        "epub_navigator"
+                                                );
                     }
+
 
                     @Override
                     public void onError(
@@ -233,6 +367,7 @@ public class ReaderFragment extends Fragment {
                             return;
                         }
 
+
                         readerText.setText(
                                 "Could not open EPUB:\n\n"
                                         + message
@@ -242,11 +377,101 @@ public class ReaderFragment extends Fragment {
         );
     }
 
-    private String readTextFile(File file)
-            throws IOException {
+
+    private void handleBookmarkRequest() {
+
+        if (epubNavigator == null) {
+
+            Toast.makeText(
+                    requireContext(),
+                    "Reader is not ready.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        epubReaderBridge.getCurrentSelection(
+                epubNavigator,
+                new EpubReaderBridge.SelectionCallback() {
+
+                    @Override
+                    public void onSelection(
+                            String selectedText,
+                            String locatorJson,
+                            String chapterTitle
+                    ) {
+
+                        if (
+                                selectedText == null
+                                        || selectedText.trim().isEmpty()
+                        ) {
+
+                            Toast.makeText(
+                                    requireContext(),
+                                    "No text selected.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            return;
+                        }
+
+                        if (
+                                locatorJson == null
+                                        || locatorJson.trim().isEmpty()
+                        ) {
+
+                            Toast.makeText(
+                                    requireContext(),
+                                    "Could not save the bookmark location.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            return;
+                        }
+
+                        Bookmark bookmark =
+                                new Bookmark();
+
+                        bookmark.bookId =
+                                currentBookId;
+
+                        bookmark.selectedText =
+                                selectedText;
+
+                        bookmark.locatorJson =
+                                locatorJson;
+
+                        bookmark.chapterTitle =
+                                chapterTitle != null
+                                        ? chapterTitle
+                                        : "";
+
+                        bookmark.createdAt =
+                                System.currentTimeMillis();
+
+                        bookmarkRepository.insertBookmark(
+                                bookmark
+                        );
+
+                        Toast.makeText(
+                                requireContext(),
+                                "Bookmark saved.",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                    }
+                }
+        );
+    }
+
+
+    private String readTextFile(
+            File file
+    ) throws IOException {
 
         StringBuilder content =
                 new StringBuilder();
+
 
         try (
                 BufferedReader reader =
@@ -257,12 +482,22 @@ public class ReaderFragment extends Fragment {
 
             String line;
 
-            while ((line = reader.readLine()) != null) {
 
-                content.append(line);
-                content.append("\n");
+            while (
+                    (line = reader.readLine())
+                            != null
+            ) {
+
+                content.append(
+                        line
+                );
+
+                content.append(
+                        "\n"
+                );
             }
         }
+
 
         return content.toString();
     }

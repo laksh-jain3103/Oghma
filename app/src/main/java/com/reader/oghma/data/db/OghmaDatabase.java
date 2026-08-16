@@ -2,40 +2,109 @@ package com.reader.oghma.data.db;
 
 import android.content.Context;
 
+import androidx.annotation.NonNull;
 import androidx.room.Database;
 import androidx.room.Room;
 import androidx.room.RoomDatabase;
+import androidx.room.migration.Migration;
+import androidx.sqlite.db.SupportSQLiteDatabase;
 
 import com.reader.oghma.data.dao.BookDao;
+import com.reader.oghma.data.dao.BookTagDao;
+import com.reader.oghma.data.dao.BookmarkDao;
 import com.reader.oghma.data.dao.ProgressDao;
+import com.reader.oghma.data.dao.TagDao;
+
 import com.reader.oghma.data.entity.Book;
+import com.reader.oghma.data.entity.BookTag;
+import com.reader.oghma.data.entity.Bookmark;
 import com.reader.oghma.data.entity.Progress;
+import com.reader.oghma.data.entity.Tag;
+
 
 @Database(
         entities = {
                 Book.class,
-                Progress.class
+                Progress.class,
+                Bookmark.class,
+                Tag.class,
+                BookTag.class
         },
-        version = 1,
+        version = 2,
         exportSchema = false
 )
-public abstract class OghmaDatabase extends RoomDatabase {
+public abstract class OghmaDatabase
+        extends RoomDatabase {
 
     public abstract BookDao bookDao();
 
     public abstract ProgressDao progressDao();
 
+    public abstract BookmarkDao bookmarkDao();
+
+    public abstract TagDao tagDao();
+
+    public abstract BookTagDao bookTagDao();
+
+
     private static volatile OghmaDatabase INSTANCE;
 
-    public static OghmaDatabase getInstance(Context context) {
 
-        INSTANCE = Room.databaseBuilder(
-                context.getApplicationContext(),
-                OghmaDatabase.class,
-                "oghma_database"
-        )
-                .fallbackToDestructiveMigration()
-                .build();
+    /*
+     * Database migration:
+     *
+     * Version 1 → Version 2
+     *
+     * Adds:
+     * - Bookmark
+     * - Tag
+     * - BookTag
+     *
+     * Existing books and progress are preserved.
+     */
+
+    private static final Migration MIGRATION_1_2 =
+            new Migration(1, 2) {
+
+                @Override
+                public void migrate(
+                        @NonNull SupportSQLiteDatabase database
+                ) {
+
+                    database.execSQL(
+                            "CREATE TABLE IF NOT EXISTS `Bookmark` (" +
+                                    "`bookmarkId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                                    "`bookId` INTEGER NOT NULL, " +
+                                    "`selectedText` TEXT, " +
+                                    "`locatorJson` TEXT, " +
+                                    "`chapterTitle` TEXT, " +
+                                    "`createdAt` INTEGER NOT NULL" +
+                                    ")"
+                    );
+
+
+                    database.execSQL(
+                            "CREATE TABLE IF NOT EXISTS `Tag` (" +
+                                    "`tagId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                                    "`name` TEXT" +
+                                    ")"
+                    );
+
+
+                    database.execSQL(
+                            "CREATE TABLE IF NOT EXISTS `BookTag` (" +
+                                    "`bookId` INTEGER NOT NULL, " +
+                                    "`tagId` INTEGER NOT NULL, " +
+                                    "PRIMARY KEY(`bookId`, `tagId`)" +
+                                    ")"
+                    );
+                }
+            };
+
+
+    public static OghmaDatabase getInstance(
+            Context context
+    ) {
 
         if (INSTANCE == null) {
 
@@ -43,14 +112,21 @@ public abstract class OghmaDatabase extends RoomDatabase {
 
                 if (INSTANCE == null) {
 
-                    INSTANCE = Room.databaseBuilder(
-                            context.getApplicationContext(),
-                            OghmaDatabase.class,
-                            "oghma_database"
-                    ).build();
+                    INSTANCE =
+                            Room.databaseBuilder(
+                                            context.getApplicationContext(),
+                                            OghmaDatabase.class,
+                                            "oghma_database"
+                                    )
+                                    .addMigrations(
+                                            MIGRATION_1_2
+                                    )
+                                    .fallbackToDestructiveMigration()
+                                    .build();
                 }
             }
         }
+
 
         return INSTANCE;
     }

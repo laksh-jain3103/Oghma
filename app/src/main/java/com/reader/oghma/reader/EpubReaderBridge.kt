@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
+import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.publication.services.cover
 import org.readium.r2.shared.util.asset.AssetRetriever
 import org.readium.r2.shared.util.http.DefaultHttpClient
@@ -16,6 +17,11 @@ import org.readium.r2.streamer.PublicationOpener
 import org.readium.r2.streamer.parser.DefaultPublicationParser
 import java.io.File
 import java.io.FileOutputStream
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
+import android.widget.Toast
+import org.readium.adapter.pdfium.document.PdfiumDocumentFactory
 
 class EpubReaderBridge(
     context: Context
@@ -47,22 +53,25 @@ class EpubReaderBridge(
                     context = appContext,
                     httpClient = httpClient,
                     assetRetriever = assetRetriever,
-                    pdfFactory = null
+                    pdfFactory = PdfiumDocumentFactory(appContext)
                 )
         )
 
 
     interface Callback {
+        fun onSuccess(factory: FragmentFactory)
+        fun onError(message: String)
 
-        fun onSuccess(
-            factory: FragmentFactory
-        )
-
-        fun onError(
-            message: String
-        )
+        fun onBookmarkRequested()
     }
 
+    interface SelectionCallback {
+        fun onSelection(
+            selectedText: String?,
+            locatorJson: String?,
+            chapterTitle: String?
+        )
+    }
 
     interface CoverCallback {
 
@@ -203,10 +212,65 @@ class EpubReaderBridge(
 
 
                 val fragmentFactory =
-                    navigatorFactory
-                        .createFragmentFactory(
-                            initialLocator = null
-                        )
+                    navigatorFactory.createFragmentFactory(
+                        initialLocator = null,
+                        configuration =
+                            EpubNavigatorFragment.Configuration(
+                                selectionActionModeCallback =
+                                    object : ActionMode.Callback {
+
+                                        override fun onCreateActionMode(
+                                            mode: ActionMode,
+                                            menu: Menu
+                                        ): Boolean {
+
+                                            menu.add(
+                                                "Bookmark"
+                                            )
+
+                                            return true
+                                        }
+
+
+                                        override fun onPrepareActionMode(
+                                            mode: ActionMode,
+                                            menu: Menu
+                                        ): Boolean {
+
+                                            return false
+                                        }
+
+
+                                        override fun onActionItemClicked(
+                                            mode: ActionMode,
+                                            item: MenuItem
+                                        ): Boolean {
+
+                                            if (
+                                                item.title
+                                                    .toString()
+                                                    .equals(
+                                                        "Bookmark",
+                                                        ignoreCase = true
+                                                    )
+                                            ) {
+
+                                                callback.onBookmarkRequested()
+
+                                                return true
+                                            }
+
+                                            return false
+                                        }
+
+
+                                        override fun onDestroyActionMode(
+                                            mode: ActionMode
+                                        ) {
+                                        }
+                                    }
+                            )
+                    )
 
 
                 withContext(Dispatchers.Main) {
@@ -230,6 +294,65 @@ class EpubReaderBridge(
         }
     }
 
+    fun getCurrentSelection(
+        navigator: EpubNavigatorFragment,
+        callback: SelectionCallback
+    ) {
+
+        CoroutineScope(Dispatchers.Main).launch {
+
+            try {
+
+                val selection =
+                    navigator.currentSelection()
+
+                if (selection == null) {
+
+                    callback.onSelection(
+                        null,
+                        null,
+                        null
+                    )
+
+                    return@launch
+                }
+
+                val locator =
+                    selection.locator
+
+                val selectedText =
+                    locator.text.highlight
+
+                val locatorJson =
+                    locator.toJSON().toString()
+
+                val chapterTitle =
+                    locator.title
+
+                callback.onSelection(
+                    selectedText,
+                    locatorJson,
+                    chapterTitle
+                )
+
+            } catch (e: Exception) {
+
+                e.printStackTrace()
+
+                Toast.makeText(
+                    appContext,
+                    "Selection error: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+
+                callback.onSelection(
+                    null,
+                    null,
+                    null
+                )
+            }
+        }
+    }
 
     fun extractCover(
         file: File,

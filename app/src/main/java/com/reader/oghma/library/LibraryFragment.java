@@ -4,9 +4,11 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.Toast;
 
@@ -20,16 +22,29 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import androidx.activity.OnBackPressedCallback;
 import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.reader.ReaderFragment;
+
 import java.io.File;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import androidx.recyclerview.widget.RecyclerView;
 
+import com.reader.oghma.data.entity.Bookmark;
+import com.reader.oghma.data.repository.BookmarkRepository;
 
 public class LibraryFragment extends Fragment {
+
+    // =========================================================
+    // Library
+    // =========================================================
 
     private LibraryViewModel viewModel;
 
@@ -47,18 +62,66 @@ public class LibraryFragment extends Fragment {
 
     private ImageButton sortButton;
 
+    private ImageButton settingsButton;
+
+
+    // =========================================================
+    // Navigation
+    // =========================================================
+
+    private BottomNavigationView bottomNavigation;
+
+    private View bookmarksPage;
+
+    private View findMorePage;
+
+    private RecyclerView bookmarksRecyclerView;
+
+    private View bookmarksEmptyText;
+
+    private BookmarkAdapter bookmarkAdapter;
+
+    private BookmarkRepository bookmarkRepository;
+
+    // =========================================================
+    // View state
+    // =========================================================
+
     private boolean isGridView = false;
 
     private GridSpacingItemDecoration gridSpacing;
+
+
+    // =========================================================
+    // Search
+    // =========================================================
+
+    /*
+     * This keeps the complete list of books.
+     *
+     * The adapter may contain only the search results,
+     * but this list always contains everything from Room.
+     */
+
+    private final List<Book> allBooks =
+            new ArrayList<>();
+
+
+    private String searchQuery = "";
+
+
+    // =========================================================
+    // Import
+    // =========================================================
 
     private ActivityResultLauncher<String[]> filePickerLauncher;
 
     private BookIngestor bookIngestor;
 
-    private BottomNavigationView bottomNavigation;
 
-    private ImageButton settingsButton;
-
+    // =========================================================
+    // Constructor
+    // =========================================================
 
     public LibraryFragment() {
         // Required empty constructor
@@ -127,6 +190,10 @@ public class LibraryFragment extends Fragment {
         );
 
 
+        // -----------------------------------------------------
+        // Find views
+        // -----------------------------------------------------
+
         bookRecyclerView =
                 view.findViewById(
                         R.id.bookRecyclerView
@@ -162,10 +229,12 @@ public class LibraryFragment extends Fragment {
                         R.id.sortButton
                 );
 
+
         settingsButton =
                 view.findViewById(
                         R.id.settingsButton
                 );
+
 
         bottomNavigation =
                 view.findViewById(
@@ -173,13 +242,59 @@ public class LibraryFragment extends Fragment {
                 );
 
 
+        bookmarksPage =
+                view.findViewById(
+                        R.id.bookmarksPage
+                );
+
+        bookmarksRecyclerView =
+                view.findViewById(
+                        R.id.bookmarksRecyclerView
+                );
+
+        bookmarksEmptyText =
+                view.findViewById(
+                        R.id.bookmarksEmptyText
+                );
+
+        bookmarkRepository =
+                new BookmarkRepository(
+                        requireActivity()
+                                .getApplication()
+                );
+
+        bookmarkAdapter =
+                new BookmarkAdapter();
+
+        bookmarksRecyclerView.setLayoutManager(
+                new LinearLayoutManager(
+                        requireContext()
+                )
+        );
+
+        bookmarksRecyclerView.setAdapter(
+                bookmarkAdapter
+        );
+
+        findMorePage =
+                view.findViewById(
+                        R.id.findMorePage
+                );
+
+
+        // -----------------------------------------------------
         // Grid spacing
+        // -----------------------------------------------------
 
         gridSpacing =
                 new GridSpacingItemDecoration(
                         16
                 );
 
+
+        // -----------------------------------------------------
+        // Set everything up
+        // -----------------------------------------------------
 
         setupRecyclerView();
 
@@ -194,6 +309,48 @@ public class LibraryFragment extends Fragment {
 
 
         setupButtons();
+
+
+        // -----------------------------------------------------
+        // Start on Library
+        // -----------------------------------------------------
+
+        bottomNavigation.setSelectedItemId(
+                R.id.nav_library
+        );
+
+        requireActivity()
+                .getOnBackPressedDispatcher()
+                .addCallback(
+                        getViewLifecycleOwner(),
+                        new OnBackPressedCallback(true) {
+
+                            @Override
+                            public void handleOnBackPressed() {
+
+                                int selectedId =
+                                        bottomNavigation
+                                                .getSelectedItemId();
+
+                                if (
+                                        selectedId != R.id.nav_library
+                                ) {
+
+                                    bottomNavigation
+                                            .setSelectedItemId(
+                                                    R.id.nav_library
+                                            );
+
+                                    return;
+                                }
+
+                                setEnabled(false);
+
+                                requireActivity()
+                                        .onBackPressed();
+                            }
+                        }
+                );
     }
 
 
@@ -207,20 +364,27 @@ public class LibraryFragment extends Fragment {
                 new BookAdapter();
 
 
+        // -----------------------------------------------------
         // Normal card click
-        // Opens the book.
+        // -----------------------------------------------------
 
         adapter.setOnBookClickListener(
                 book -> openBook(book)
         );
 
 
+        // -----------------------------------------------------
         // Three-dot button
+        // -----------------------------------------------------
 
         adapter.setOnBookMoreClickListener(
                 book -> showBookMenu(book)
         );
 
+
+        // -----------------------------------------------------
+        // Default list layout
+        // -----------------------------------------------------
 
         bookRecyclerView.setLayoutManager(
                 new LinearLayoutManager(
@@ -271,9 +435,10 @@ public class LibraryFragment extends Fragment {
                 .commit();
     }
 
+
     // =========================================================
-// Three-dot menu
-// =========================================================
+    // Three-dot menu
+    // =========================================================
 
     private void showBookMenu(Book book) {
 
@@ -282,21 +447,28 @@ public class LibraryFragment extends Fragment {
                 "Remove from library"
         };
 
+
         new AlertDialog.Builder(
                 requireContext()
         )
-                .setTitle(book.title)
+                .setTitle(
+                        book.title
+                )
                 .setItems(
                         options,
                         (dialog, which) -> {
 
                             if (which == 0) {
 
-                                showBookDetails(book);
+                                showBookDetails(
+                                        book
+                                );
 
                             } else if (which == 1) {
 
-                                confirmRemoveBook(book);
+                                confirmRemoveBook(
+                                        book
+                                );
                             }
                         }
                 )
@@ -304,9 +476,9 @@ public class LibraryFragment extends Fragment {
     }
 
 
-// =========================================================
-// Book details
-// =========================================================
+    // =========================================================
+    // Book details
+    // =========================================================
 
     private void showBookDetails(Book book) {
 
@@ -315,10 +487,12 @@ public class LibraryFragment extends Fragment {
                         ? book.author
                         : "Unknown author";
 
+
         String format =
                 book.format != null
                         ? book.format.toUpperCase()
                         : "Unknown";
+
 
         String details =
                 "Title: "
@@ -336,11 +510,16 @@ public class LibraryFragment extends Fragment {
                         + "\n\n"
                         + "Tags: None";
 
+
         new AlertDialog.Builder(
                 requireContext()
         )
-                .setTitle("Book details")
-                .setMessage(details)
+                .setTitle(
+                        "Book details"
+                )
+                .setMessage(
+                        details
+                )
                 .setPositiveButton(
                         "Open book",
                         (dialog, which) ->
@@ -354,16 +533,20 @@ public class LibraryFragment extends Fragment {
     }
 
 
-// =========================================================
-// Remove confirmation
-// =========================================================
+    // =========================================================
+    // Remove confirmation
+    // =========================================================
 
-    private void confirmRemoveBook(Book book) {
+    private void confirmRemoveBook(
+            Book book
+    ) {
 
         new AlertDialog.Builder(
                 requireContext()
         )
-                .setTitle("Remove book?")
+                .setTitle(
+                        "Remove book?"
+                )
                 .setMessage(
                         "Remove \""
                                 + book.title
@@ -382,24 +565,24 @@ public class LibraryFragment extends Fragment {
     }
 
 
-// =========================================================
-// Remove book
-// =========================================================
+    // =========================================================
+    // Remove book
+    // =========================================================
 
     private void removeBook(Book book) {
 
-        // --------------------------------
+        // -----------------------------------------------------
         // Delete database record
-        // --------------------------------
+        // -----------------------------------------------------
 
         viewModel
                 .getRepository()
                 .deleteBook(book);
 
 
-        // --------------------------------
-        // Delete Oghma's copied book file
-        // --------------------------------
+        // -----------------------------------------------------
+        // Delete local book file
+        // -----------------------------------------------------
 
         if (
                 book.filePath != null
@@ -407,12 +590,16 @@ public class LibraryFragment extends Fragment {
         ) {
 
             File bookFile =
-                    new File(book.filePath);
+                    new File(
+                            book.filePath
+                    );
+
 
             if (bookFile.exists()) {
 
                 boolean deleted =
                         bookFile.delete();
+
 
                 if (!deleted) {
 
@@ -422,9 +609,9 @@ public class LibraryFragment extends Fragment {
         }
 
 
-        // --------------------------------
-        // Delete Oghma's generated cover
-        // --------------------------------
+        // -----------------------------------------------------
+        // Delete generated cover
+        // -----------------------------------------------------
 
         if (
                 book.coverPath != null
@@ -432,12 +619,16 @@ public class LibraryFragment extends Fragment {
         ) {
 
             File coverFile =
-                    new File(book.coverPath);
+                    new File(
+                            book.coverPath
+                    );
+
 
             if (coverFile.exists()) {
 
                 boolean deleted =
                         coverFile.delete();
+
 
                 if (!deleted) {
 
@@ -446,10 +637,6 @@ public class LibraryFragment extends Fragment {
             }
         }
 
-
-        // --------------------------------
-        // Tell user
-        // --------------------------------
 
         Toast.makeText(
                 requireContext(),
@@ -497,6 +684,11 @@ public class LibraryFragment extends Fragment {
                     R.drawable.ic_view_grid
             );
 
+
+            viewModeButton.setContentDescription(
+                    "Grid view"
+            );
+
         } else {
 
             bookRecyclerView.setLayoutManager(
@@ -513,6 +705,11 @@ public class LibraryFragment extends Fragment {
 
             viewModeButton.setImageResource(
                     R.drawable.ic_view_list
+            );
+
+
+            viewModeButton.setContentDescription(
+                    "List view"
             );
         }
     }
@@ -535,14 +732,34 @@ public class LibraryFragment extends Fragment {
                 getViewLifecycleOwner(),
                 books -> {
 
-                    adapter.setBooks(
-                            books
-                    );
+                    // -----------------------------------------
+                    // Keep complete library list
+                    // -----------------------------------------
 
+                    allBooks.clear();
+
+
+                    if (books != null) {
+
+                        allBooks.addAll(
+                                books
+                        );
+                    }
+
+
+                    // -----------------------------------------
+                    // Apply current search
+                    // -----------------------------------------
+
+                    applySearch();
+
+
+                    // -----------------------------------------
+                    // Empty state
+                    // -----------------------------------------
 
                     boolean isEmpty =
-                            books == null
-                                    || books.isEmpty();
+                            allBooks.isEmpty();
 
 
                     emptyLibrary.setVisibility(
@@ -551,6 +768,15 @@ public class LibraryFragment extends Fragment {
                                     : View.GONE
                     );
 
+
+                    /*
+                     * Only show the RecyclerView when the
+                     * library actually contains books.
+                     *
+                     * The search itself can produce zero
+                     * results, so applySearch() handles that
+                     * separately.
+                     */
 
                     bookRecyclerView.setVisibility(
                             isEmpty
@@ -563,10 +789,225 @@ public class LibraryFragment extends Fragment {
 
 
     // =========================================================
+    // Search
+    // =========================================================
+
+    private void showSearchDialog() {
+
+        final EditText searchInput =
+                new EditText(
+                        requireContext()
+                );
+
+
+        searchInput.setSingleLine(
+                true
+        );
+
+
+        searchInput.setHint(
+                "Title, author, or format"
+        );
+
+
+        searchInput.setInputType(
+                InputType.TYPE_CLASS_TEXT
+        );
+
+
+        if (!searchQuery.isEmpty()) {
+
+            searchInput.setText(
+                    searchQuery
+            );
+
+
+            searchInput.setSelection(
+                    searchInput.length()
+            );
+        }
+
+
+        AlertDialog dialog =
+                new AlertDialog.Builder(
+                        requireContext()
+                )
+                        .setTitle(
+                                "Search library"
+                        )
+                        .setView(
+                                searchInput
+                        )
+                        .setPositiveButton(
+                                "Search",
+                                null
+                        )
+                        .setNeutralButton(
+                                "Clear",
+                                null
+                        )
+                        .setNegativeButton(
+                                "Cancel",
+                                null
+                        )
+                        .create();
+
+
+        dialog.setOnShowListener(
+                ignored -> {
+
+                    dialog.getButton(
+                            AlertDialog.BUTTON_POSITIVE
+                    ).setOnClickListener(
+                            v -> {
+
+                                searchQuery =
+                                        searchInput
+                                                .getText()
+                                                .toString()
+                                                .trim();
+
+
+                                applySearch();
+
+
+                                dialog.dismiss();
+                            }
+                    );
+
+
+                    dialog.getButton(
+                            AlertDialog.BUTTON_NEUTRAL
+                    ).setOnClickListener(
+                            v -> {
+
+                                searchQuery =
+                                        "";
+
+
+                                applySearch();
+
+
+                                dialog.dismiss();
+                            }
+                    );
+
+
+                    searchInput.requestFocus();
+
+
+                    dialog.getWindow()
+                            .setSoftInputMode(
+                                    android.view.WindowManager
+                                            .LayoutParams
+                                            .SOFT_INPUT_STATE_ALWAYS_VISIBLE
+                            );
+                }
+        );
+
+
+        dialog.show();
+    }
+
+
+    private void applySearch() {
+
+        if (adapter == null) {
+            return;
+        }
+
+
+        // -----------------------------------------------------
+        // No search
+        // -----------------------------------------------------
+
+        if (
+                searchQuery == null
+                        || searchQuery.isEmpty()
+        ) {
+
+            adapter.setBooks(
+                    allBooks
+            );
+
+            return;
+        }
+
+
+        String query =
+                searchQuery
+                        .toLowerCase(
+                                Locale.ROOT
+                        );
+
+
+        List<Book> filteredBooks =
+                new ArrayList<>();
+
+
+        for (Book book : allBooks) {
+
+            if (book == null) {
+                continue;
+            }
+
+
+            String title =
+                    book.title != null
+                            ? book.title
+                            : "";
+
+
+            String author =
+                    book.author != null
+                            ? book.author
+                            : "";
+
+
+            String format =
+                    book.format != null
+                            ? book.format
+                            : "";
+
+
+            boolean matches =
+                    title.toLowerCase(
+                            Locale.ROOT
+                    ).contains(query)
+                            ||
+                            author.toLowerCase(
+                                    Locale.ROOT
+                            ).contains(query)
+                            ||
+                            format.toLowerCase(
+                                    Locale.ROOT
+                            ).contains(query);
+
+
+            if (matches) {
+
+                filteredBooks.add(
+                        book
+                );
+            }
+        }
+
+
+        adapter.setBooks(
+                filteredBooks
+        );
+    }
+
+
+    // =========================================================
     // Buttons
     // =========================================================
 
     private void setupButtons() {
+
+        // -----------------------------------------------------
+        // Add book
+        // -----------------------------------------------------
 
         addBookButton.setOnClickListener(
                 v -> {
@@ -582,13 +1023,41 @@ public class LibraryFragment extends Fragment {
         );
 
 
+        // -----------------------------------------------------
+        // Search
+        // -----------------------------------------------------
+
         searchButton.setOnClickListener(
                 v -> {
 
-                    // Search will be added later.
+                    /*
+                     * Search only applies to the local library.
+                     *
+                     * Find More will eventually have its own
+                     * internet/source search system.
+                     */
+
+                    if (
+                            bottomNavigation
+                                    .getSelectedItemId()
+                                    != R.id.nav_library
+                    ) {
+
+                        bottomNavigation
+                                .setSelectedItemId(
+                                        R.id.nav_library
+                                );
+                    }
+
+
+                    showSearchDialog();
                 }
         );
 
+
+        // -----------------------------------------------------
+        // List / Grid
+        // -----------------------------------------------------
 
         viewModeButton.setOnClickListener(
                 v ->
@@ -596,12 +1065,35 @@ public class LibraryFragment extends Fragment {
         );
 
 
+        // -----------------------------------------------------
+        // Sort
+        // -----------------------------------------------------
+
         sortButton.setOnClickListener(
                 v -> {
 
-                    // Sorting will be added later.
+                    /*
+                     * Sorting is intentionally left for the
+                     * next library backend step.
+                     *
+                     * Planned options:
+                     *
+                     * Title
+                     * Author
+                     * File type
+                     * Series
+                     * Progress
+                     * Last opened
+                     *
+                     * Each will support ascending/descending.
+                     */
                 }
         );
+
+
+        // -----------------------------------------------------
+        // Settings
+        // -----------------------------------------------------
 
         settingsButton.setOnClickListener(
                 v -> {
@@ -614,43 +1106,186 @@ public class LibraryFragment extends Fragment {
                 }
         );
 
+
+        // -----------------------------------------------------
+        // Bottom navigation
+        // -----------------------------------------------------
+
         bottomNavigation.setOnItemSelectedListener(
                 item -> {
 
-                    int itemId = item.getItemId();
+                    int itemId =
+                            item.getItemId();
 
                     if (itemId == R.id.nav_library) {
 
+                        showLibraryPage();
+
                         return true;
+                    }
 
-                    } else if (itemId == R.id.nav_bookmarks) {
+                    if (itemId == R.id.nav_bookmarks) {
 
-                        Toast.makeText(
-                                requireContext(),
-                                "Bookmarks coming later",
-                                Toast.LENGTH_SHORT
-                        ).show();
+                        showBookmarksPage();
 
-                        return false;
+                        return true;
+                    }
 
-                    } else if (itemId == R.id.nav_find_more) {
+                    if (itemId == R.id.nav_find_more) {
 
-                        Toast.makeText(
-                                requireContext(),
-                                "Find More coming later",
-                                Toast.LENGTH_SHORT
-                        ).show();
+                        showFindMorePage();
 
-                        return false;
+                        return true;
                     }
 
                     return false;
                 }
         );
-
     }
 
 
+    // =========================================================
+    // Library page
+    // =========================================================
+
+    private void showLibraryPage() {
+
+        emptyLibrary.setVisibility(
+                View.VISIBLE
+        );
+
+        bookRecyclerView.setVisibility(
+                View.VISIBLE
+        );
+
+        bookmarksPage.setVisibility(
+                View.GONE
+        );
+
+        findMorePage.setVisibility(
+                View.GONE
+        );
+
+        viewModeButton.setVisibility(
+                View.VISIBLE
+        );
+
+        addBookButton.setVisibility(
+                View.VISIBLE
+        );
+    }
+
+
+    private void showBookmarksPage() {
+
+        emptyLibrary.setVisibility(
+                View.GONE
+        );
+
+        bookRecyclerView.setVisibility(
+                View.GONE
+        );
+
+        bookmarksPage.setVisibility(
+                View.VISIBLE
+        );
+
+        findMorePage.setVisibility(
+                View.GONE
+        );
+
+        viewModeButton.setVisibility(
+                View.GONE
+        );
+
+        addBookButton.setVisibility(
+                View.GONE
+        );
+
+        loadBookmarks();
+    }
+
+    private void loadBookmarks() {
+
+        bookmarkRepository.getAllBookmarks(
+                bookmarks -> {
+
+                    if (!isAdded()) {
+                        return;
+                    }
+
+                    requireActivity().runOnUiThread(
+                            () -> {
+
+                                if (
+                                        bookmarks == null
+                                                || bookmarks.isEmpty()
+                                ) {
+
+                                    bookmarksRecyclerView
+                                            .setVisibility(
+                                                    View.GONE
+                                            );
+
+                                    bookmarksEmptyText
+                                            .setVisibility(
+                                                    View.VISIBLE
+                                            );
+
+                                    bookmarkAdapter
+                                            .setBookmarks(
+                                                    null
+                                            );
+
+                                    return;
+                                }
+
+                                bookmarksRecyclerView
+                                        .setVisibility(
+                                                View.VISIBLE
+                                        );
+
+                                bookmarksEmptyText
+                                        .setVisibility(
+                                                View.GONE
+                                        );
+
+                                bookmarkAdapter
+                                        .setBookmarks(
+                                                bookmarks
+                                        );
+                            }
+                    );
+                }
+        );
+    }
+
+    private void showFindMorePage() {
+
+        emptyLibrary.setVisibility(
+                View.GONE
+        );
+
+        bookRecyclerView.setVisibility(
+                View.GONE
+        );
+
+        bookmarksPage.setVisibility(
+                View.GONE
+        );
+
+        findMorePage.setVisibility(
+                View.VISIBLE
+        );
+
+        viewModeButton.setVisibility(
+                View.GONE
+        );
+
+        addBookButton.setVisibility(
+                View.GONE
+        );
+    }
 
 
     // =========================================================
@@ -664,6 +1299,13 @@ public class LibraryFragment extends Fragment {
 
 
         if (fileName == null) {
+
+            Toast.makeText(
+                    requireContext(),
+                    "Could not read file name",
+                    Toast.LENGTH_SHORT
+            ).show();
+
             return;
         }
 
@@ -673,6 +1315,13 @@ public class LibraryFragment extends Fragment {
 
 
         if (format == null) {
+
+            Toast.makeText(
+                    requireContext(),
+                    "Unsupported book format",
+                    Toast.LENGTH_SHORT
+            ).show();
+
             return;
         }
 
@@ -686,6 +1335,13 @@ public class LibraryFragment extends Fragment {
 
 
             if (inputStream == null) {
+
+                Toast.makeText(
+                        requireContext(),
+                        "Could not open selected file",
+                        Toast.LENGTH_SHORT
+                ).show();
+
                 return;
             }
 
@@ -700,6 +1356,13 @@ public class LibraryFragment extends Fragment {
         } catch (Exception e) {
 
             e.printStackTrace();
+
+
+            Toast.makeText(
+                    requireContext(),
+                    "Could not import book",
+                    Toast.LENGTH_SHORT
+            ).show();
         }
     }
 
@@ -708,9 +1371,12 @@ public class LibraryFragment extends Fragment {
     // Get filename
     // =========================================================
 
-    private String getFileName(Uri uri) {
+    private String getFileName(
+            Uri uri
+    ) {
 
-        String fileName = null;
+        String fileName =
+                null;
 
 
         Cursor cursor =
@@ -733,7 +1399,8 @@ public class LibraryFragment extends Fragment {
 
                     int nameIndex =
                             cursor.getColumnIndex(
-                                    OpenableColumns.DISPLAY_NAME
+                                    OpenableColumns
+                                            .DISPLAY_NAME
                             );
 
 
@@ -745,6 +1412,7 @@ public class LibraryFragment extends Fragment {
                                 );
                     }
                 }
+
 
             } finally {
 
@@ -766,7 +1434,9 @@ public class LibraryFragment extends Fragment {
     ) {
 
         String lowerName =
-                fileName.toLowerCase();
+                fileName.toLowerCase(
+                        Locale.ROOT
+                );
 
 
         if (
