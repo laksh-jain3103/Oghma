@@ -2,26 +2,33 @@ package com.reader.oghma.reader
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
+import android.widget.Toast
+
 import androidx.fragment.app.FragmentFactory
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+import org.json.JSONObject
+
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
+import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.services.cover
 import org.readium.r2.shared.util.asset.AssetRetriever
 import org.readium.r2.shared.util.http.DefaultHttpClient
 import org.readium.r2.streamer.PublicationOpener
 import org.readium.r2.streamer.parser.DefaultPublicationParser
+
 import java.io.File
 import java.io.FileOutputStream
-import android.view.ActionMode
-import android.view.Menu
-import android.view.MenuItem
-import android.widget.Toast
-import org.readium.adapter.pdfium.document.PdfiumDocumentFactory
+
 
 class EpubReaderBridge(
     context: Context
@@ -30,13 +37,16 @@ class EpubReaderBridge(
     private val appContext =
         context.applicationContext
 
+
     private val scope =
         CoroutineScope(
             SupervisorJob() + Dispatchers.IO
         )
 
+
     private val httpClient =
         DefaultHttpClient()
+
 
     private val assetRetriever =
         AssetRetriever(
@@ -46,6 +56,7 @@ class EpubReaderBridge(
                 httpClient
         )
 
+
     private val publicationOpener =
         PublicationOpener(
             publicationParser =
@@ -53,25 +64,58 @@ class EpubReaderBridge(
                     context = appContext,
                     httpClient = httpClient,
                     assetRetriever = assetRetriever,
-                    pdfFactory = PdfiumDocumentFactory(appContext)
+                    pdfFactory = null
                 )
         )
 
 
+    // =========================================================
+    // Open callback
+    // =========================================================
+
     interface Callback {
-        fun onSuccess(factory: FragmentFactory)
-        fun onError(message: String)
+
+        fun onSuccess(
+            factory: FragmentFactory
+        )
+
+        fun onError(
+            message: String
+        )
 
         fun onBookmarkRequested()
     }
 
+
+    // =========================================================
+    // Selection callback
+    // =========================================================
+
     interface SelectionCallback {
+
         fun onSelection(
             selectedText: String?,
             locatorJson: String?,
             chapterTitle: String?
         )
     }
+
+
+    // =========================================================
+    // Progress callback
+    // =========================================================
+
+    interface LocatorCallback {
+
+        fun onLocator(
+            locatorJson: String?
+        )
+    }
+
+
+    // =========================================================
+    // Cover callback
+    // =========================================================
 
     interface CoverCallback {
 
@@ -85,14 +129,23 @@ class EpubReaderBridge(
     }
 
 
+    // =========================================================
+    // Open EPUB
+    // =========================================================
+
     fun openEpub(
         file: File,
+        initialLocatorJson: String?,
         callback: Callback
     ) {
 
         scope.launch {
 
             try {
+
+                // -------------------------------------------------
+                // Check file
+                // -------------------------------------------------
 
                 if (!file.exists()) {
 
@@ -107,8 +160,14 @@ class EpubReaderBridge(
                 }
 
 
+                // -------------------------------------------------
+                // Retrieve asset
+                // -------------------------------------------------
+
                 val assetResult =
-                    assetRetriever.retrieve(file)
+                    assetRetriever.retrieve(
+                        file
+                    )
 
 
                 if (assetResult.isFailure) {
@@ -153,6 +212,10 @@ class EpubReaderBridge(
                     return@launch
                 }
 
+
+                // -------------------------------------------------
+                // Open publication
+                // -------------------------------------------------
 
                 val publicationResult =
                     publicationOpener.open(
@@ -204,6 +267,20 @@ class EpubReaderBridge(
                 }
 
 
+                // -------------------------------------------------
+                // Convert saved JSON into Readium Locator
+                // -------------------------------------------------
+
+                val initialLocator =
+                    parseLocator(
+                        initialLocatorJson
+                    )
+
+
+                // -------------------------------------------------
+                // Create navigator
+                // -------------------------------------------------
+
                 val navigatorFactory =
                     EpubNavigatorFactory(
                         publication =
@@ -213,9 +290,13 @@ class EpubReaderBridge(
 
                 val fragmentFactory =
                     navigatorFactory.createFragmentFactory(
-                        initialLocator = null,
+
+                        initialLocator =
+                            initialLocator,
+
                         configuration =
                             EpubNavigatorFragment.Configuration(
+
                                 selectionActionModeCallback =
                                     object : ActionMode.Callback {
 
@@ -273,6 +354,10 @@ class EpubReaderBridge(
                     )
 
 
+                // -------------------------------------------------
+                // Return factory
+                // -------------------------------------------------
+
                 withContext(Dispatchers.Main) {
 
                     callback.onSuccess(
@@ -294,65 +379,170 @@ class EpubReaderBridge(
         }
     }
 
-    fun getCurrentSelection(
+
+    // =========================================================
+    // Parse Locator JSON
+    // =========================================================
+
+    private fun parseLocator(
+        locatorJson: String?
+    ): Locator? {
+
+        if (
+            locatorJson == null
+            || locatorJson.trim().isEmpty()
+        ) {
+
+            return null
+        }
+
+
+        return try {
+
+            Locator.fromJSON(
+                JSONObject(
+                    locatorJson
+                )
+            )
+
+        } catch (e: Exception) {
+
+            e.printStackTrace()
+
+            null
+        }
+    }
+
+
+    // =========================================================
+    // Get current reading location
+    // =========================================================
+
+    fun getCurrentLocator(
         navigator: EpubNavigatorFragment,
-        callback: SelectionCallback
+        callback: LocatorCallback
     ) {
 
-        CoroutineScope(Dispatchers.Main).launch {
+        CoroutineScope(
+            Dispatchers.Main
+        ).launch {
 
             try {
 
-                val selection =
-                    navigator.currentSelection()
-
-                if (selection == null) {
-
-                    callback.onSelection(
-                        null,
-                        null,
-                        null
-                    )
-
-                    return@launch
-                }
-
                 val locator =
-                    selection.locator
+                    navigator
+                        .currentLocator
+                        .value
 
-                val selectedText =
-                    locator.text.highlight
 
                 val locatorJson =
-                    locator.toJSON().toString()
+                    locator
+                        .toJSON()
+                        .toString()
 
-                val chapterTitle =
-                    locator.title
 
-                callback.onSelection(
-                    selectedText,
-                    locatorJson,
-                    chapterTitle
+                callback.onLocator(
+                    locatorJson
                 )
 
             } catch (e: Exception) {
 
                 e.printStackTrace()
 
-                Toast.makeText(
-                    appContext,
-                    "Selection error: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-
-                callback.onSelection(
-                    null,
-                    null,
+                callback.onLocator(
                     null
                 )
             }
         }
     }
+
+
+    // =========================================================
+    // Get current text selection
+    // =========================================================
+
+    fun getCurrentSelection(
+        navigator: EpubNavigatorFragment,
+        callback: SelectionCallback
+    ) {
+
+        scope.launch {
+
+            try {
+
+                val selection =
+                    navigator.currentSelection()
+
+
+                if (selection == null) {
+
+                    withContext(
+                        Dispatchers.Main
+                    ) {
+
+                        callback.onSelection(
+                            null,
+                            null,
+                            null
+                        )
+                    }
+
+                    return@launch
+                }
+
+
+                val locator =
+                    selection.locator
+
+
+                val selectedText =
+                    locator.text.highlight
+
+
+                val locatorJson =
+                    locator.toJSON()
+                        .toString()
+
+
+                val chapterTitle =
+                    locator.title
+
+
+                withContext(
+                    Dispatchers.Main
+                ) {
+
+                    callback.onSelection(
+                        selectedText,
+                        locatorJson,
+                        chapterTitle
+                    )
+                }
+
+
+            } catch (e: Exception) {
+
+                e.printStackTrace()
+
+
+                withContext(
+                    Dispatchers.Main
+                ) {
+
+                    callback.onSelection(
+                        null,
+                        null,
+                        null
+                    )
+                }
+            }
+        }
+    }
+
+
+    // =========================================================
+    // Extract EPUB cover
+    // =========================================================
 
     fun extractCover(
         file: File,
@@ -366,7 +556,9 @@ class EpubReaderBridge(
 
                 if (!file.exists()) {
 
-                    withContext(Dispatchers.Main) {
+                    withContext(
+                        Dispatchers.Main
+                    ) {
 
                         callback.onError(
                             "EPUB file does not exist:\n${file.absolutePath}"
@@ -377,10 +569,14 @@ class EpubReaderBridge(
                 }
 
 
-                // Give the EPUB to Readium.
+                // -------------------------------------------------
+                // Retrieve EPUB
+                // -------------------------------------------------
 
                 val assetResult =
-                    assetRetriever.retrieve(file)
+                    assetRetriever.retrieve(
+                        file
+                    )
 
 
                 if (assetResult.isFailure) {
@@ -398,7 +594,9 @@ class EpubReaderBridge(
                         )
 
 
-                    withContext(Dispatchers.Main) {
+                    withContext(
+                        Dispatchers.Main
+                    ) {
 
                         callback.onError(
                             "Readium could not load the EPUB:\n$errorMessage"
@@ -415,7 +613,9 @@ class EpubReaderBridge(
 
                 if (asset == null) {
 
-                    withContext(Dispatchers.Main) {
+                    withContext(
+                        Dispatchers.Main
+                    ) {
 
                         callback.onError(
                             "Readium returned an empty EPUB asset."
@@ -426,7 +626,9 @@ class EpubReaderBridge(
                 }
 
 
-                // Open the EPUB as a Publication.
+                // -------------------------------------------------
+                // Open EPUB
+                // -------------------------------------------------
 
                 val publicationResult =
                     publicationOpener.open(
@@ -450,7 +652,9 @@ class EpubReaderBridge(
                         )
 
 
-                    withContext(Dispatchers.Main) {
+                    withContext(
+                        Dispatchers.Main
+                    ) {
 
                         callback.onError(
                             "Readium could not open the EPUB:\n$errorMessage"
@@ -467,7 +671,9 @@ class EpubReaderBridge(
 
                 if (publication == null) {
 
-                    withContext(Dispatchers.Main) {
+                    withContext(
+                        Dispatchers.Main
+                    ) {
 
                         callback.onError(
                             "Readium returned an empty publication."
@@ -478,10 +684,9 @@ class EpubReaderBridge(
                 }
 
 
-                // Ask Readium for a cover.
-                //
-                // 600 x 900 is plenty for our library
-                // thumbnails and avoids storing huge images.
+                // -------------------------------------------------
+                // Get cover
+                // -------------------------------------------------
 
                 val cover =
                     publication.cover()
@@ -489,7 +694,9 @@ class EpubReaderBridge(
 
                 if (cover == null) {
 
-                    withContext(Dispatchers.Main) {
+                    withContext(
+                        Dispatchers.Main
+                    ) {
 
                         callback.onError(
                             "This EPUB does not provide a usable cover."
@@ -500,12 +707,8 @@ class EpubReaderBridge(
                 }
 
 
-                // Make sure the covers directory exists.
-
                 outputFile.parentFile?.mkdirs()
 
-
-                // Save the Bitmap as JPEG.
 
                 FileOutputStream(
                     outputFile
@@ -519,12 +722,12 @@ class EpubReaderBridge(
                 }
 
 
-                // Close the Readium publication.
-
                 publication.close()
 
 
-                withContext(Dispatchers.Main) {
+                withContext(
+                    Dispatchers.Main
+                ) {
 
                     callback.onSuccess(
                         outputFile
@@ -536,7 +739,10 @@ class EpubReaderBridge(
 
                 e.printStackTrace()
 
-                withContext(Dispatchers.Main) {
+
+                withContext(
+                    Dispatchers.Main
+                ) {
 
                     callback.onError(
                         e.message

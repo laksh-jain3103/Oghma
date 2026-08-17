@@ -36,7 +36,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Comparator;
-import androidx.recyclerview.widget.RecyclerView;
+import android.widget.TextView;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import android.content.Intent;
 
 
 import com.reader.oghma.data.entity.Bookmark;
@@ -65,6 +69,11 @@ public class LibraryFragment extends Fragment {
     private ImageButton sortButton;
 
     private ImageButton settingsButton;
+
+    private View settingsPanel;
+    private ImageButton settingsBackButton;
+    private TextView settingsEmail;
+    private TextView logoutButton;
 
 
     // =========================================================
@@ -241,6 +250,26 @@ public class LibraryFragment extends Fragment {
                         R.id.settingsButton
                 );
 
+        settingsPanel =
+                view.findViewById(
+                        R.id.settingsPanel
+                );
+
+        settingsBackButton =
+                view.findViewById(
+                        R.id.settingsBackButton
+                );
+
+        settingsEmail =
+                view.findViewById(
+                        R.id.settingsEmail
+                );
+
+        logoutButton =
+                view.findViewById(
+                        R.id.logoutButton
+                );
+
 
         bottomNavigation =
                 view.findViewById(
@@ -340,13 +369,18 @@ public class LibraryFragment extends Fragment {
                             @Override
                             public void handleOnBackPressed() {
 
+                                if (settingsPanel.getVisibility() == View.VISIBLE) {
+
+                                    hideSettings();
+
+                                    return;
+                                }
+
                                 int selectedId =
                                         bottomNavigation
                                                 .getSelectedItemId();
 
-                                if (
-                                        selectedId != R.id.nav_library
-                                ) {
+                                if (selectedId != R.id.nav_library) {
 
                                     bottomNavigation
                                             .setSelectedItemId(
@@ -1323,14 +1357,15 @@ public class LibraryFragment extends Fragment {
         // -----------------------------------------------------
 
         settingsButton.setOnClickListener(
-                v -> {
+                v -> showSettings()
+        );
 
-                    Toast.makeText(
-                            requireContext(),
-                            "Settings coming later",
-                            Toast.LENGTH_SHORT
-                    ).show();
-                }
+        settingsBackButton.setOnClickListener(
+                v -> hideSettings()
+        );
+
+        logoutButton.setOnClickListener(
+                v -> confirmLogout()
         );
 
 
@@ -1368,6 +1403,69 @@ public class LibraryFragment extends Fragment {
                     return false;
                 }
         );
+    }
+
+    private void showSettings() {
+
+        settingsPanel.setVisibility(View.VISIBLE);
+
+        FirebaseUser user =
+                FirebaseAuth.getInstance().getCurrentUser();
+
+        if (user != null) {
+
+            String email = user.getEmail();
+
+            if (email != null && !email.isEmpty()) {
+                settingsEmail.setText(email);
+            } else {
+                settingsEmail.setText("Signed in");
+            }
+
+        } else {
+            settingsEmail.setText("Not signed in");
+        }
+    }
+
+    private void hideSettings() {
+
+        settingsPanel.setVisibility(View.GONE);
+    }
+
+    private void confirmLogout() {
+
+        new AlertDialog.Builder(requireContext())
+                .setTitle("Log out?")
+                .setMessage("Are you sure you want to log out of Oghma?")
+                .setNegativeButton(
+                        "Cancel",
+                        null
+                )
+                .setPositiveButton(
+                        "Log out",
+                        (dialog, which) -> logout()
+                )
+                .show();
+    }
+
+    private void logout() {
+
+        FirebaseAuth.getInstance().signOut();
+
+        Intent intent =
+                new Intent(
+                        requireContext(),
+                        com.reader.oghma.LoginActivity.class
+                );
+
+        intent.setFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TASK
+        );
+
+        startActivity(intent);
+
+        requireActivity().finish();
     }
 
 

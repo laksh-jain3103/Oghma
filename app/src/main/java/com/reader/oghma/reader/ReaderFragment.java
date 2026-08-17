@@ -16,15 +16,19 @@ import androidx.fragment.app.FragmentFactory;
 
 import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
+import com.reader.oghma.data.entity.Bookmark;
+import com.reader.oghma.data.entity.Progress;
 import com.reader.oghma.data.repository.BookRepository;
 import com.reader.oghma.data.repository.BookmarkRepository;
-import com.reader.oghma.data.entity.Bookmark;
+import com.reader.oghma.data.repository.ProgressRepository;
+
 import org.readium.r2.navigator.epub.EpubNavigatorFragment;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+
 
 public class ReaderFragment extends Fragment {
 
@@ -35,14 +39,19 @@ public class ReaderFragment extends Fragment {
 
     private BookRepository repository;
     private BookmarkRepository bookmarkRepository;
-    private EpubReaderBridge epubReaderBridge;
+    private ProgressRepository progressRepository;
 
+    private EpubReaderBridge epubReaderBridge;
     private PdfReaderBridge pdfReaderBridge;
 
     private EpubNavigatorFragment epubNavigator;
 
     private int currentBookId = -1;
 
+    /*
+     * If this is not null, the reader was opened
+     * from a bookmark and should start there.
+     */
     private String bookmarkLocator;
 
 
@@ -79,6 +88,10 @@ public class ReaderFragment extends Fragment {
         );
 
 
+        // -----------------------------------------------------
+        // Views
+        // -----------------------------------------------------
+
         readerText =
                 view.findViewById(
                         R.id.readerText
@@ -103,15 +116,25 @@ public class ReaderFragment extends Fragment {
                 );
 
 
+        // -----------------------------------------------------
+        // Reader bridges
+        // -----------------------------------------------------
+
         epubReaderBridge =
                 new EpubReaderBridge(
                         requireContext()
                 );
 
+
         pdfReaderBridge =
                 new PdfReaderBridge(
                         requireContext()
                 );
+
+
+        // -----------------------------------------------------
+        // Repositories
+        // -----------------------------------------------------
 
         repository =
                 new BookRepository(
@@ -127,17 +150,47 @@ public class ReaderFragment extends Fragment {
                 );
 
 
-        backButton.setOnClickListener(
-                v ->
+        progressRepository =
+                new ProgressRepository(
                         requireActivity()
-                                .getSupportFragmentManager()
-                                .popBackStack()
+                                .getApplication()
+                );
+
+
+        // -----------------------------------------------------
+        // Back button
+        // -----------------------------------------------------
+
+        backButton.setOnClickListener(
+                v -> {
+
+                    requireActivity()
+                            .getSupportFragmentManager()
+                            .popBackStack();
+                }
         );
 
 
         loadBook();
     }
 
+
+    // =========================================================
+    // SAVE PROGRESS WHEN READER IS LEFT
+    // =========================================================
+
+    @Override
+    public void onPause() {
+
+        saveProgress();
+
+        super.onPause();
+    }
+
+
+    // =========================================================
+    // LOAD BOOK
+    // =========================================================
 
     private void loadBook() {
 
@@ -161,11 +214,19 @@ public class ReaderFragment extends Fragment {
                         -1
                 );
 
+
+        /*
+         * Bookmark screen can provide this.
+         *
+         * If it is null, we will load normal reading
+         * progress from ProgressRepository.
+         */
         bookmarkLocator =
                 args.getString(
                         "bookmarkLocator",
                         null
                 );
+
 
         if (bookId == -1) {
 
@@ -216,6 +277,10 @@ public class ReaderFragment extends Fragment {
     }
 
 
+    // =========================================================
+    // DISPLAY BOOK
+    // =========================================================
+
     private void displayBook(
             Book book
     ) {
@@ -224,6 +289,10 @@ public class ReaderFragment extends Fragment {
                 book.title
         );
 
+
+        // -----------------------------------------------------
+        // TXT
+        // -----------------------------------------------------
 
         if (
                 "txt".equalsIgnoreCase(
@@ -237,6 +306,10 @@ public class ReaderFragment extends Fragment {
         }
 
 
+        // -----------------------------------------------------
+        // EPUB
+        // -----------------------------------------------------
+
         if (
                 "epub".equalsIgnoreCase(
                         book.format
@@ -247,6 +320,11 @@ public class ReaderFragment extends Fragment {
 
             return;
         }
+
+
+        // -----------------------------------------------------
+        // PDF
+        // -----------------------------------------------------
 
         if (
                 "pdf".equalsIgnoreCase(
@@ -259,11 +337,16 @@ public class ReaderFragment extends Fragment {
             return;
         }
 
+
         readerText.setText(
                 "This format is not supported yet."
         );
     }
 
+
+    // =========================================================
+    // TXT
+    // =========================================================
 
     private void displayTxtBook(
             Book book
@@ -290,6 +373,7 @@ public class ReaderFragment extends Fragment {
             String content =
                     readTextFile(file);
 
+
             readerText.setText(
                     content
             );
@@ -304,6 +388,10 @@ public class ReaderFragment extends Fragment {
         }
     }
 
+
+    // =========================================================
+    // EPUB
+    // =========================================================
 
     private void displayEpubBook(
             Book book
@@ -330,8 +418,89 @@ public class ReaderFragment extends Fragment {
         );
 
 
+        loadProgressAndOpenEpub(
+                epubFile
+        );
+    }
+
+
+    // =========================================================
+    // LOAD PROGRESS THEN OPEN EPUB
+    // =========================================================
+
+    private void loadProgressAndOpenEpub(
+            File epubFile
+    ) {
+
+        /*
+         * Bookmark location takes priority.
+         */
+        if (
+                bookmarkLocator != null
+                        && !bookmarkLocator.trim().isEmpty()
+        ) {
+
+            openEpub(
+                    epubFile,
+                    bookmarkLocator
+            );
+
+            return;
+        }
+
+
+        /*
+         * No bookmark location.
+         *
+         * Load the last saved reading location.
+         */
+        progressRepository.getProgress(
+                currentBookId,
+                progress -> {
+
+                    if (!isAdded()) {
+                        return;
+                    }
+
+
+                    String progressLocator = null;
+
+
+                    if (progress != null) {
+
+                        progressLocator =
+                                progress.locator;
+                    }
+
+
+                    String finalLocator =
+                            progressLocator;
+
+
+                    requireActivity().runOnUiThread(
+                            () ->
+                                    openEpub(
+                                            epubFile,
+                                            finalLocator
+                                    )
+                    );
+                }
+        );
+    }
+
+
+    // =========================================================
+    // OPEN EPUB
+    // =========================================================
+
+    private void openEpub(
+            File epubFile,
+            String initialLocatorJson
+    ) {
+
         epubReaderBridge.openEpub(
                 epubFile,
+                initialLocatorJson,
                 new EpubReaderBridge.Callback() {
 
                     @Override
@@ -378,6 +547,11 @@ public class ReaderFragment extends Fragment {
                                                 .findFragmentByTag(
                                                         "epub_navigator"
                                                 );
+
+
+                        readerText.setVisibility(
+                                View.GONE
+                        );
                     }
 
 
@@ -391,6 +565,11 @@ public class ReaderFragment extends Fragment {
                         }
 
 
+                        readerText.setVisibility(
+                                View.VISIBLE
+                        );
+
+
                         readerText.setText(
                                 "Could not open EPUB:\n\n"
                                         + message
@@ -400,6 +579,10 @@ public class ReaderFragment extends Fragment {
         );
     }
 
+
+    // =========================================================
+    // BOOKMARK
+    // =========================================================
 
     private void handleBookmarkRequest() {
 
@@ -413,6 +596,7 @@ public class ReaderFragment extends Fragment {
 
             return;
         }
+
 
         epubReaderBridge.getCurrentSelection(
                 epubNavigator,
@@ -439,6 +623,7 @@ public class ReaderFragment extends Fragment {
                             return;
                         }
 
+
                         if (
                                 locatorJson == null
                                         || locatorJson.trim().isEmpty()
@@ -453,29 +638,37 @@ public class ReaderFragment extends Fragment {
                             return;
                         }
 
+
                         Bookmark bookmark =
                                 new Bookmark();
+
 
                         bookmark.bookId =
                                 currentBookId;
 
+
                         bookmark.selectedText =
                                 selectedText;
 
+
                         bookmark.locatorJson =
                                 locatorJson;
+
 
                         bookmark.chapterTitle =
                                 chapterTitle != null
                                         ? chapterTitle
                                         : "";
 
+
                         bookmark.createdAt =
                                 System.currentTimeMillis();
+
 
                         bookmarkRepository.insertBookmark(
                                 bookmark
                         );
+
 
                         Toast.makeText(
                                 requireContext(),
@@ -487,6 +680,61 @@ public class ReaderFragment extends Fragment {
         );
     }
 
+
+    // =========================================================
+    // SAVE READING PROGRESS
+    // =========================================================
+
+    private void saveProgress() {
+
+        if (
+                epubNavigator == null
+                        || currentBookId == -1
+        ) {
+            return;
+        }
+
+
+        epubReaderBridge.getCurrentLocator(
+                epubNavigator,
+                locatorJson -> {
+
+                    if (
+                            locatorJson == null
+                                    || locatorJson.trim().isEmpty()
+                    ) {
+                        return;
+                    }
+
+
+                    Progress progress =
+                            new Progress();
+
+
+                    progress.bookId =
+                            currentBookId;
+
+
+                    progress.locator =
+                            locatorJson;
+
+
+                    progress.percentage =
+                            0f;
+
+
+                    progressRepository.saveProgress(
+                            progress
+                    );
+                }
+        );
+    }
+
+
+    // =========================================================
+    // PDF
+    // =========================================================
+
     private void displayPdfBook(
             Book book
     ) {
@@ -495,6 +743,7 @@ public class ReaderFragment extends Fragment {
                 new File(
                         book.filePath
                 );
+
 
         if (!pdfFile.exists()) {
 
@@ -505,9 +754,11 @@ public class ReaderFragment extends Fragment {
             return;
         }
 
+
         readerText.setText(
                 "PDF reader is being loaded..."
         );
+
 
         pdfReaderBridge.openPdf(
                 pdfFile,
@@ -522,10 +773,12 @@ public class ReaderFragment extends Fragment {
                             return;
                         }
 
+
                         getChildFragmentManager()
                                 .setFragmentFactory(
                                         factory
                                 );
+
 
                         getChildFragmentManager()
                                 .beginTransaction()
@@ -537,10 +790,12 @@ public class ReaderFragment extends Fragment {
                                 )
                                 .commit();
 
+
                         readerText.setVisibility(
                                 View.GONE
                         );
                     }
+
 
                     @Override
                     public void onError(
@@ -551,9 +806,11 @@ public class ReaderFragment extends Fragment {
                             return;
                         }
 
+
                         readerText.setVisibility(
                                 View.VISIBLE
                         );
+
 
                         readerText.setText(
                                 "Could not open PDF:\n\n"
@@ -563,6 +820,11 @@ public class ReaderFragment extends Fragment {
                 }
         );
     }
+
+
+    // =========================================================
+    // TEXT FILE READER
+    // =========================================================
 
     private String readTextFile(
             File file
@@ -590,6 +852,7 @@ public class ReaderFragment extends Fragment {
                 content.append(
                         line
                 );
+
 
                 content.append(
                         "\n"
