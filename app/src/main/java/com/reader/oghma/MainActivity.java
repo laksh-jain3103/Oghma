@@ -6,6 +6,8 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.reader.oghma.library.LibraryFragment;
 
+import com.reader.oghma.api.GoogleBooksTest;
+
 public class MainActivity extends AppCompatActivity {
 
     @Override
@@ -24,5 +26,7 @@ public class MainActivity extends AppCompatActivity {
                     )
                     .commit();
         }
+
+        GoogleBooksTest.testSearch();
     }
 }
