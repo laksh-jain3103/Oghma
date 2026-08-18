@@ -28,6 +28,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.reader.ReaderFragment;
+
 import java.io.File;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -35,8 +36,17 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
-
 public class LibraryPageFragment extends Fragment {
+
+    // =========================================================
+    // Active instance
+    // =========================================================
+
+    private static LibraryPageFragment activeInstance;
+
+    public static LibraryPageFragment getActiveInstance() {
+        return activeInstance;
+    }
 
 
     // =========================================================
@@ -162,6 +172,10 @@ public class LibraryPageFragment extends Fragment {
                 view,
                 savedInstanceState
         );
+
+
+        // Register this exact Fragment instance.
+        activeInstance = this;
 
 
         bookRecyclerView =
@@ -596,11 +610,15 @@ public class LibraryPageFragment extends Fragment {
                         title.toLowerCase(
                                 Locale.ROOT
                         ).contains(query)
+
                                 ||
+
                                 author.toLowerCase(
                                         Locale.ROOT
                                 ).contains(query)
+
                                 ||
+
                                 format.toLowerCase(
                                         Locale.ROOT
                                 ).contains(query)
@@ -1138,5 +1156,22 @@ public class LibraryPageFragment extends Fragment {
                 "Removed from library",
                 Toast.LENGTH_SHORT
         ).show();
+    }
+
+
+    // =========================================================
+    // Destroy view
+    // =========================================================
+
+    @Override
+    public void onDestroyView() {
+
+        if (activeInstance == this) {
+
+            activeInstance = null;
+        }
+
+
+        super.onDestroyView();
     }
 }

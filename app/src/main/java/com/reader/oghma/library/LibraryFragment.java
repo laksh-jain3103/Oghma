@@ -211,12 +211,14 @@ public class LibraryFragment extends Fragment {
 
 
         // -----------------------------------------------------
-        // Start on Library
+        // Start on Library page
         // -----------------------------------------------------
 
-        libraryPager.setCurrentItem(
-                0,
-                false
+        libraryPager.post(
+                () -> libraryPager.setCurrentItem(
+                        0,
+                        false
+                )
         );
 
 
@@ -240,12 +242,6 @@ public class LibraryFragment extends Fragment {
         searchButton.setOnClickListener(
                 v -> {
 
-                    libraryPager.setCurrentItem(
-                            0,
-                            true
-                    );
-
-
                     LibraryPageFragment page =
                             getLibraryPage();
 
@@ -253,6 +249,13 @@ public class LibraryFragment extends Fragment {
                     if (page != null) {
 
                         page.showSearchDialog();
+
+                    } else {
+
+                        android.util.Log.e(
+                                "OghmaLibrary",
+                                "Search: LibraryPageFragment is null"
+                        );
                     }
                 }
         );
@@ -265,12 +268,6 @@ public class LibraryFragment extends Fragment {
         sortButton.setOnClickListener(
                 v -> {
 
-                    libraryPager.setCurrentItem(
-                            0,
-                            true
-                    );
-
-
                     LibraryPageFragment page =
                             getLibraryPage();
 
@@ -278,6 +275,13 @@ public class LibraryFragment extends Fragment {
                     if (page != null) {
 
                         page.showSortDialog();
+
+                    } else {
+
+                        android.util.Log.e(
+                                "OghmaLibrary",
+                                "Sort: LibraryPageFragment is null"
+                        );
                     }
                 }
         );
@@ -290,12 +294,6 @@ public class LibraryFragment extends Fragment {
         addBookButton.setOnClickListener(
                 v -> {
 
-                    libraryPager.setCurrentItem(
-                            0,
-                            true
-                    );
-
-
                     LibraryPageFragment page =
                             getLibraryPage();
 
@@ -303,6 +301,13 @@ public class LibraryFragment extends Fragment {
                     if (page != null) {
 
                         page.startImport();
+
+                    } else {
+
+                        android.util.Log.e(
+                                "OghmaLibrary",
+                                "Add: LibraryPageFragment is null"
+                        );
                     }
                 }
         );
@@ -348,6 +353,7 @@ public class LibraryFragment extends Fragment {
                                 true
                         );
 
+
                         return true;
                     }
 
@@ -362,6 +368,7 @@ public class LibraryFragment extends Fragment {
                                 true
                         );
 
+
                         return true;
                     }
 
@@ -375,6 +382,7 @@ public class LibraryFragment extends Fragment {
                                 2,
                                 true
                         );
+
 
                         return true;
                     }
@@ -430,41 +438,20 @@ public class LibraryFragment extends Fragment {
 
 
     // =========================================================
-    // Get Library page
+    // Get active Library page
     // =========================================================
+    //
+    // The LibraryPageFragment registers itself when its view
+    // is created.
+    //
+    // This avoids relying on FragmentManager tags or the
+    // internal ViewPager2 fragment implementation.
+    //
 
     @Nullable
     private LibraryPageFragment getLibraryPage() {
 
-        if (libraryPager == null) {
-            return null;
-        }
-
-
-        String tag =
-                "f"
-                        + R.id.libraryPager
-                        + ":"
-                        + libraryPager.getCurrentItem();
-
-
-        Fragment fragment =
-                getChildFragmentManager()
-                        .findFragmentByTag(
-                                tag
-                        );
-
-
-        if (
-                fragment
-                        instanceof LibraryPageFragment
-        ) {
-
-            return (LibraryPageFragment) fragment;
-        }
-
-
-        return null;
+        return LibraryPageFragment.getActiveInstance();
     }
 
 

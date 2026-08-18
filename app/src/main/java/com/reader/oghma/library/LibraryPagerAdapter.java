@@ -29,7 +29,9 @@ public class LibraryPagerAdapter extends FragmentStateAdapter {
                 return new FindMorePageFragment();
 
             default:
-                return new LibraryPageFragment();
+                throw new IllegalArgumentException(
+                        "Invalid page position: " + position
+                );
         }
     }
 
