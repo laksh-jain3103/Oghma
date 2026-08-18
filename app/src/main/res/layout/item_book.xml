@@ -85,7 +85,7 @@
             android:contentDescription="Book options"
             android:padding="8dp"
             android:src="@android:drawable/ic_menu_info_details"
-            android:tint="@color/text_secondary" />
+            app:tint="@color/text_secondary" />
 
     </LinearLayout>
 

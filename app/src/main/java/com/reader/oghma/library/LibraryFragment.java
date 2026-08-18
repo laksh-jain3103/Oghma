@@ -35,7 +35,9 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Comparator;
 import androidx.recyclerview.widget.RecyclerView;
+
 
 import com.reader.oghma.data.entity.Bookmark;
 import com.reader.oghma.data.repository.BookmarkRepository;
@@ -108,6 +110,10 @@ public class LibraryFragment extends Fragment {
 
 
     private String searchQuery = "";
+
+    private int sortMode = 0;
+
+    private boolean sortDescending = false;
 
 
     // =========================================================
@@ -266,6 +272,12 @@ public class LibraryFragment extends Fragment {
         bookmarkAdapter =
                 new BookmarkAdapter();
 
+        bookmarkAdapter.setOnBookmarkClickListener(
+                bookmark -> openBookmark(
+                        bookmark
+                )
+        );
+
         bookmarksRecyclerView.setLayoutManager(
                 new LinearLayoutManager(
                         requireContext()
@@ -398,6 +410,40 @@ public class LibraryFragment extends Fragment {
         );
     }
 
+    private void openBookmark(
+            Bookmark bookmark
+    ) {
+
+        Bundle args =
+                new Bundle();
+
+        args.putInt(
+                "bookId",
+                bookmark.bookId
+        );
+
+        args.putString(
+                "bookmarkLocator",
+                bookmark.locatorJson
+        );
+
+        ReaderFragment readerFragment =
+                new ReaderFragment();
+
+        readerFragment.setArguments(
+                args
+        );
+
+        requireActivity()
+                .getSupportFragmentManager()
+                .beginTransaction()
+                .replace(
+                        R.id.fragmentContainer,
+                        readerFragment
+                )
+                .addToBackStack(null)
+                .commit();
+    }
 
     // =========================================================
     // Open book
@@ -738,7 +784,6 @@ public class LibraryFragment extends Fragment {
 
                     allBooks.clear();
 
-
                     if (books != null) {
 
                         allBooks.addAll(
@@ -746,6 +791,12 @@ public class LibraryFragment extends Fragment {
                         );
                     }
 
+                    // Give BookmarkAdapter the complete
+                    // library list, not search results.
+
+                    bookmarkAdapter.setBooks(
+                            allBooks
+                    );
 
                     // -----------------------------------------
                     // Apply current search
@@ -917,87 +968,280 @@ public class LibraryFragment extends Fragment {
         }
 
 
-        // -----------------------------------------------------
-        // No search
-        // -----------------------------------------------------
+        // ---------------------------------------------------------
+        // Start with the complete library
+        // ---------------------------------------------------------
+
+        List<Book> filteredBooks =
+                new ArrayList<>();
+
 
         if (
                 searchQuery == null
                         || searchQuery.isEmpty()
         ) {
 
-            adapter.setBooks(
+            filteredBooks.addAll(
                     allBooks
             );
 
-            return;
-        }
+        } else {
+
+            String query =
+                    searchQuery
+                            .toLowerCase(
+                                    Locale.ROOT
+                            );
 
 
-        String query =
-                searchQuery
-                        .toLowerCase(
+            // -----------------------------------------------------
+            // Search title, author, and format
+            // -----------------------------------------------------
+
+            for (Book book : allBooks) {
+
+                if (book == null) {
+                    continue;
+                }
+
+
+                String title =
+                        book.title != null
+                                ? book.title
+                                : "";
+
+
+                String author =
+                        book.author != null
+                                ? book.author
+                                : "";
+
+
+                String format =
+                        book.format != null
+                                ? book.format
+                                : "";
+
+
+                boolean matches =
+                        title.toLowerCase(
                                 Locale.ROOT
-                        );
+                        ).contains(query)
+                                ||
+                                author.toLowerCase(
+                                        Locale.ROOT
+                                ).contains(query)
+                                ||
+                                format.toLowerCase(
+                                        Locale.ROOT
+                                ).contains(query);
 
 
-        List<Book> filteredBooks =
-                new ArrayList<>();
+                if (matches) {
 
-
-        for (Book book : allBooks) {
-
-            if (book == null) {
-                continue;
-            }
-
-
-            String title =
-                    book.title != null
-                            ? book.title
-                            : "";
-
-
-            String author =
-                    book.author != null
-                            ? book.author
-                            : "";
-
-
-            String format =
-                    book.format != null
-                            ? book.format
-                            : "";
-
-
-            boolean matches =
-                    title.toLowerCase(
-                            Locale.ROOT
-                    ).contains(query)
-                            ||
-                            author.toLowerCase(
-                                    Locale.ROOT
-                            ).contains(query)
-                            ||
-                            format.toLowerCase(
-                                    Locale.ROOT
-                            ).contains(query);
-
-
-            if (matches) {
-
-                filteredBooks.add(
-                        book
-                );
+                    filteredBooks.add(
+                            book
+                    );
+                }
             }
         }
 
+
+        // ---------------------------------------------------------
+        // Sort results
+        // ---------------------------------------------------------
+
+        sortBooks(
+                filteredBooks
+        );
+
+
+        // ---------------------------------------------------------
+        // Show results
+        // ---------------------------------------------------------
 
         adapter.setBooks(
                 filteredBooks
         );
     }
 
+    private void sortBooks(
+            List<Book> books
+    ) {
+
+        Comparator<Book> comparator;
+
+
+        switch (sortMode) {
+
+            case 1:
+
+                // -------------------------------------------------
+                // Author A-Z
+                // -------------------------------------------------
+
+                comparator =
+                        Comparator.comparing(
+                                book ->
+                                        book.author != null
+                                                ? book.author
+                                                : "",
+                                String.CASE_INSENSITIVE_ORDER
+                        );
+
+                break;
+
+
+            case 2:
+
+                // -------------------------------------------------
+                // Date added
+                // -------------------------------------------------
+
+                comparator =
+                        Comparator.comparingLong(
+                                book ->
+                                        book.addedAt
+                        );
+
+                break;
+
+
+            case 3:
+
+                // -------------------------------------------------
+                // Format
+                // -------------------------------------------------
+
+                comparator =
+                        Comparator.comparing(
+                                book ->
+                                        book.format != null
+                                                ? book.format
+                                                : "",
+                                String.CASE_INSENSITIVE_ORDER
+                        );
+
+                break;
+
+
+            case 0:
+
+            default:
+
+                // -------------------------------------------------
+                // Title A-Z
+                // -------------------------------------------------
+
+                comparator =
+                        Comparator.comparing(
+                                book ->
+                                        book.title != null
+                                                ? book.title
+                                                : "",
+                                String.CASE_INSENSITIVE_ORDER
+                        );
+
+                break;
+        }
+
+
+        if (sortDescending) {
+
+            comparator =
+                    comparator.reversed();
+        }
+
+
+        books.sort(
+                comparator
+        );
+    }
+
+
+    private void showSortDialog() {
+
+        String[] sortOptions = {
+                "Title",
+                "Author",
+                "Date added",
+                "Format"
+        };
+
+
+        String[] directionOptions = {
+                "Ascending",
+                "Descending"
+        };
+
+
+        new AlertDialog.Builder(
+                requireContext()
+        )
+                .setTitle(
+                        "Sort library"
+                )
+                .setSingleChoiceItems(
+                        sortOptions,
+                        sortMode,
+                        (dialog, which) -> {
+
+                            sortMode =
+                                    which;
+
+                            dialog.dismiss();
+
+                            showSortDirectionDialog();
+                        }
+                )
+                .setNegativeButton(
+                        "Cancel",
+                        null
+                )
+                .show();
+    }
+
+    private void showSortDirectionDialog() {
+
+        String[] directionOptions = {
+                "Ascending",
+                "Descending"
+        };
+
+
+        int checked =
+                sortDescending
+                        ? 1
+                        : 0;
+
+
+        new AlertDialog.Builder(
+                requireContext()
+        )
+                .setTitle(
+                        "Sort direction"
+                )
+                .setSingleChoiceItems(
+                        directionOptions,
+                        checked,
+                        (dialog, which) -> {
+
+                            sortDescending =
+                                    which == 1;
+
+
+                            applySearch();
+
+
+                            dialog.dismiss();
+                        }
+                )
+                .setNegativeButton(
+                        "Cancel",
+                        null
+                )
+                .show();
+    }
 
     // =========================================================
     // Buttons
@@ -1070,24 +1314,7 @@ public class LibraryFragment extends Fragment {
         // -----------------------------------------------------
 
         sortButton.setOnClickListener(
-                v -> {
-
-                    /*
-                     * Sorting is intentionally left for the
-                     * next library backend step.
-                     *
-                     * Planned options:
-                     *
-                     * Title
-                     * Author
-                     * File type
-                     * Series
-                     * Progress
-                     * Last opened
-                     *
-                     * Each will support ascending/descending.
-                     */
-                }
+                v -> showSortDialog()
         );
 
 

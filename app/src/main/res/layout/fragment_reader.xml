@@ -1,24 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 
-<LinearLayout
+<androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:fitsSystemWindows="true"
-    android:background="@color/reader_background">
+    android:background="@color/background"
+    android:fitsSystemWindows="true">
 
-    <!-- Reader toolbar -->
+    <!-- ===================================================== -->
+    <!-- Header -->
+    <!-- ===================================================== -->
 
     <LinearLayout
-        android:id="@+id/readerToolbar"
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:id="@+id/readerHeader"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
         android:background="@color/background_deep"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="16dp">
+        android:paddingStart="8dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
 
         <ImageButton
             android:id="@+id/backButton"
@@ -28,54 +35,52 @@
             android:contentDescription="Back"
             android:padding="12dp"
             android:src="@android:drawable/ic_menu_revert"
-            android:tint="@color/text_primary" />
+            app:tint="@color/text_secondary" />
 
         <TextView
             android:id="@+id/readerTitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:ellipsize="end"
             android:maxLines="1"
-            android:text="Reader"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:text="Oghma"
             android:textColor="@color/text_primary"
-            android:textSize="18sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
 
     </LinearLayout>
 
-    <!-- Book content -->
+
+    <!-- ===================================================== -->
+    <!-- Reader container -->
+    <!-- ===================================================== -->
 
     <FrameLayout
         android:id="@+id/readerContainer"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="@color/reader_background">
+        android:background="@color/background"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/readerHeader">
 
-        <ScrollView
-            android:id="@+id/readerScrollView"
+        <TextView
+            android:id="@+id/readerText"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:fillViewport="true">
-
-            <TextView
-                android:id="@+id/readerText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingStart="24dp"
-                android:paddingTop="28dp"
-                android:paddingEnd="24dp"
-                android:paddingBottom="56dp"
-                android:lineSpacingExtra="8dp"
-                android:textColor="@color/reader_text"
-                android:textIsSelectable="true"
-                android:textSize="18sp" />
-
-        </ScrollView>
+            android:background="@color/background"
+            android:gravity="top|start"
+            android:padding="20dp"
+            android:scrollbars="vertical"
+            android:text="Loading..."
+            android:textColor="@color/text_primary"
+            android:textIsSelectable="true"
+            android:textSize="17sp" />
 
     </FrameLayout>
 
-</LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>
