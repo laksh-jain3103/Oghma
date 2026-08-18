@@ -46,6 +46,8 @@ public class ReaderFragment extends Fragment {
 
     private EpubNavigatorFragment epubNavigator;
 
+    private boolean horizontalReadingMode = true;
+
     private int currentBookId = -1;
 
     /*
@@ -115,6 +117,15 @@ public class ReaderFragment extends Fragment {
                         R.id.readerContainer
                 );
 
+
+        ImageButton readingModeButton =
+                view.findViewById(
+                        R.id.readingModeButton
+                );
+
+        readingModeButton.setOnClickListener(
+                v -> switchReadingMode()
+        );
 
         // -----------------------------------------------------
         // Reader bridges
@@ -187,6 +198,153 @@ public class ReaderFragment extends Fragment {
         super.onPause();
     }
 
+    // =========================================================
+    // SWITCH READING MODE
+    // =========================================================
+
+    private void switchReadingMode() {
+
+        /*
+         * Only EPUB currently has the Readium reading modes.
+         */
+        if (epubNavigator == null) {
+
+            Toast.makeText(
+                    requireContext(),
+                    "Reader is not ready.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+
+        /*
+         * Get the exact position where the reader currently is.
+         *
+         * We need this because recreating the Readium navigator
+         * without a locator would potentially send the user
+         * back to the beginning.
+         */
+        epubReaderBridge.getCurrentLocator(
+                epubNavigator,
+                locatorJson -> {
+
+                    if (
+                            locatorJson == null
+                                    || locatorJson.trim().isEmpty()
+                    ) {
+
+                        Toast.makeText(
+                                requireContext(),
+                                "Could not save the current reading position.",
+                                Toast.LENGTH_SHORT
+                        ).show();
+
+                        return;
+                    }
+
+
+                    /*
+                     * Toggle the mode.
+                     */
+                    horizontalReadingMode =
+                            !horizontalReadingMode;
+
+
+                    /*
+                     * Temporarily show the loading text while
+                     * Readium creates the new navigator.
+                     */
+                    readerText.setVisibility(
+                            View.VISIBLE
+                    );
+
+                    readerText.setText(
+                            horizontalReadingMode
+                                    ? "Switching to horizontal mode..."
+                                    : "Switching to vertical mode..."
+                    );
+
+
+                    /*
+                     * Re-open the EPUB at the exact same locator,
+                     * but with the new reading mode.
+                     */
+                    reopenEpubAtLocator(
+                            locatorJson
+                    );
+                }
+        );
+    }
+
+    // =========================================================
+    // REOPEN EPUB AT CURRENT LOCATION
+    // =========================================================
+
+    private void reopenEpubAtLocator(
+            String locatorJson
+    ) {
+
+        if (currentBookId == -1) {
+            return;
+        }
+
+
+        repository.getBook(
+                currentBookId,
+                book -> {
+
+                    if (book == null) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        requireActivity().runOnUiThread(
+                                () ->
+                                        readerText.setText(
+                                                "Book not found."
+                                        )
+                        );
+
+                        return;
+                    }
+
+
+                    File epubFile =
+                            new File(
+                                    book.filePath
+                            );
+
+
+                    if (!epubFile.exists()) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        requireActivity().runOnUiThread(
+                                () ->
+                                        readerText.setText(
+                                                "The EPUB file could not be found."
+                                        )
+                        );
+
+                        return;
+                    }
+
+
+                    requireActivity().runOnUiThread(
+                            () ->
+                                    openEpub(
+                                            epubFile,
+                                            locatorJson
+                                    )
+                    );
+                }
+        );
+    }
 
     // =========================================================
     // LOAD BOOK
@@ -251,6 +409,7 @@ public class ReaderFragment extends Fragment {
                         if (!isAdded()) {
                             return;
                         }
+
 
                         requireActivity().runOnUiThread(
                                 () ->
@@ -501,6 +660,7 @@ public class ReaderFragment extends Fragment {
         epubReaderBridge.openEpub(
                 epubFile,
                 initialLocatorJson,
+                horizontalReadingMode,
                 new EpubReaderBridge.Callback() {
 
                     @Override
@@ -691,6 +851,7 @@ public class ReaderFragment extends Fragment {
                 epubNavigator == null
                         || currentBookId == -1
         ) {
+
             return;
         }
 
@@ -703,6 +864,7 @@ public class ReaderFragment extends Fragment {
                             locatorJson == null
                                     || locatorJson.trim().isEmpty()
                     ) {
+
                         return;
                     }
 

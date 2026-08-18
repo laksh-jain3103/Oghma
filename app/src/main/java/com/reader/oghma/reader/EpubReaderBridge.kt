@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
-import android.widget.Toast
 
 import androidx.fragment.app.FragmentFactory
 
@@ -19,6 +18,7 @@ import org.json.JSONObject
 
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
+import org.readium.r2.navigator.epub.EpubPreferences
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.services.cover
 import org.readium.r2.shared.util.asset.AssetRetriever
@@ -136,6 +136,7 @@ class EpubReaderBridge(
     fun openEpub(
         file: File,
         initialLocatorJson: String?,
+        horizontalReadingMode: Boolean,
         callback: Callback
     ) {
 
@@ -288,11 +289,28 @@ class EpubReaderBridge(
                     )
 
 
+                // -------------------------------------------------
+                // Initial reading preferences
+                //
+                // horizontal = paginated
+                // vertical   = scrolling
+                // -------------------------------------------------
+
+                val initialPreferences =
+                    EpubPreferences(
+                        scroll =
+                            !horizontalReadingMode
+                    )
+
+
                 val fragmentFactory =
                     navigatorFactory.createFragmentFactory(
 
                         initialLocator =
                             initialLocator,
+
+                        initialPreferences =
+                            initialPreferences,
 
                         configuration =
                             EpubNavigatorFragment.Configuration(
@@ -341,6 +359,7 @@ class EpubReaderBridge(
                                                 return true
                                             }
 
+
                                             return false
                                         }
 
@@ -377,6 +396,31 @@ class EpubReaderBridge(
                 }
             }
         }
+    }
+
+
+    // =========================================================
+    // Change reading mode on an existing EPUB navigator
+    //
+    // horizontal = false -> scrolling
+    // horizontal = true  -> paginated
+    // =========================================================
+
+    fun setReadingMode(
+        navigator: EpubNavigatorFragment,
+        horizontalReadingMode: Boolean
+    ) {
+
+        val preferences =
+            EpubPreferences(
+                scroll =
+                    !horizontalReadingMode
+            )
+
+
+        navigator.submitPreferences(
+            preferences
+        )
     }
 
 
@@ -448,6 +492,7 @@ class EpubReaderBridge(
             } catch (e: Exception) {
 
                 e.printStackTrace()
+
 
                 callback.onLocator(
                     null

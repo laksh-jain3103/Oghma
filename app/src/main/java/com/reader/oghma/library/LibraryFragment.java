@@ -1,137 +1,70 @@
 package com.reader.oghma.library;
 
-import android.database.Cursor;
-import android.net.Uri;
+import android.content.Intent;
 import android.os.Bundle;
-import android.provider.OpenableColumns;
-import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
 import android.widget.ImageButton;
-import android.widget.Toast;
+import android.widget.TextView;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
-import androidx.lifecycle.ViewModelProvider;
-import androidx.recyclerview.widget.GridLayoutManager;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
+import androidx.viewpager2.widget.ViewPager2;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
-import androidx.activity.OnBackPressedCallback;
-import com.reader.oghma.R;
-import com.reader.oghma.data.entity.Book;
-import com.reader.oghma.reader.ReaderFragment;
-
-import java.io.File;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Comparator;
-import android.widget.TextView;
-
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
-import android.content.Intent;
+import com.reader.oghma.LoginActivity;
+import com.reader.oghma.R;
 
-
-import com.reader.oghma.data.entity.Bookmark;
-import com.reader.oghma.data.repository.BookmarkRepository;
 
 public class LibraryFragment extends Fragment {
-
-    // =========================================================
-    // Library
-    // =========================================================
-
-    private LibraryViewModel viewModel;
-
-    private BookAdapter adapter;
-
-    private RecyclerView bookRecyclerView;
-
-    private View emptyLibrary;
-
-    private FloatingActionButton addBookButton;
-
-    private ImageButton searchButton;
-
-    private ImageButton viewModeButton;
-
-    private ImageButton sortButton;
-
-    private ImageButton settingsButton;
-
-    private View settingsPanel;
-    private ImageButton settingsBackButton;
-    private TextView settingsEmail;
-    private TextView logoutButton;
 
 
     // =========================================================
     // Navigation
     // =========================================================
 
+    private ViewPager2 libraryPager;
+
+    private LibraryPagerAdapter libraryPagerAdapter;
+
     private BottomNavigationView bottomNavigation;
 
-    private View bookmarksPage;
-
-    private View findMorePage;
-
-    private RecyclerView bookmarksRecyclerView;
-
-    private View bookmarksEmptyText;
-
-    private BookmarkAdapter bookmarkAdapter;
-
-    private BookmarkRepository bookmarkRepository;
 
     // =========================================================
-    // View state
+    // Header
     // =========================================================
 
-    private boolean isGridView = false;
+    private ImageButton searchButton;
 
-    private GridSpacingItemDecoration gridSpacing;
+    private ImageButton sortButton;
+
+    private ImageButton settingsButton;
 
 
     // =========================================================
-    // Search
+    // Add book
     // =========================================================
 
-    /*
-     * This keeps the complete list of books.
-     *
-     * The adapter may contain only the search results,
-     * but this list always contains everything from Room.
-     */
-
-    private final List<Book> allBooks =
-            new ArrayList<>();
-
-
-    private String searchQuery = "";
-
-    private int sortMode = 0;
-
-    private boolean sortDescending = false;
+    private FloatingActionButton addBookButton;
 
 
     // =========================================================
-    // Import
+    // Settings
     // =========================================================
 
-    private ActivityResultLauncher<String[]> filePickerLauncher;
+    private View settingsPanel;
 
-    private BookIngestor bookIngestor;
+    private ImageButton settingsBackButton;
+
+    private TextView settingsEmail;
+
+    private TextView logoutButton;
 
 
     // =========================================================
@@ -140,32 +73,6 @@ public class LibraryFragment extends Fragment {
 
     public LibraryFragment() {
         // Required empty constructor
-    }
-
-
-    // =========================================================
-    // Fragment creation
-    // =========================================================
-
-    @Override
-    public void onCreate(
-            @Nullable Bundle savedInstanceState
-    ) {
-
-        super.onCreate(savedInstanceState);
-
-
-        filePickerLauncher =
-                registerForActivityResult(
-                        new ActivityResultContracts.OpenDocument(),
-                        uri -> {
-
-                            if (uri != null) {
-
-                                importBook(uri);
-                            }
-                        }
-                );
     }
 
 
@@ -190,7 +97,7 @@ public class LibraryFragment extends Fragment {
 
 
     // =========================================================
-    // Setup
+    // View created
     // =========================================================
 
     @Override
@@ -206,36 +113,12 @@ public class LibraryFragment extends Fragment {
 
 
         // -----------------------------------------------------
-        // Find views
+        // Header
         // -----------------------------------------------------
-
-        bookRecyclerView =
-                view.findViewById(
-                        R.id.bookRecyclerView
-                );
-
-
-        emptyLibrary =
-                view.findViewById(
-                        R.id.emptyLibrary
-                );
-
-
-        addBookButton =
-                view.findViewById(
-                        R.id.addBookButton
-                );
-
 
         searchButton =
                 view.findViewById(
                         R.id.searchButton
-                );
-
-
-        viewModeButton =
-                view.findViewById(
-                        R.id.viewModeButton
                 );
 
 
@@ -250,20 +133,38 @@ public class LibraryFragment extends Fragment {
                         R.id.settingsButton
                 );
 
+
+        // -----------------------------------------------------
+        // Add book
+        // -----------------------------------------------------
+
+        addBookButton =
+                view.findViewById(
+                        R.id.addBookButton
+                );
+
+
+        // -----------------------------------------------------
+        // Settings
+        // -----------------------------------------------------
+
         settingsPanel =
                 view.findViewById(
                         R.id.settingsPanel
                 );
+
 
         settingsBackButton =
                 view.findViewById(
                         R.id.settingsBackButton
                 );
 
+
         settingsEmail =
                 view.findViewById(
                         R.id.settingsEmail
                 );
+
 
         logoutButton =
                 view.findViewById(
@@ -271,83 +172,40 @@ public class LibraryFragment extends Fragment {
                 );
 
 
+        // -----------------------------------------------------
+        // Bottom navigation
+        // -----------------------------------------------------
+
         bottomNavigation =
                 view.findViewById(
                         R.id.bottomNavigation
                 );
 
 
-        bookmarksPage =
+        // -----------------------------------------------------
+        // ViewPager
+        // -----------------------------------------------------
+
+        libraryPager =
                 view.findViewById(
-                        R.id.bookmarksPage
+                        R.id.libraryPager
                 );
 
-        bookmarksRecyclerView =
-                view.findViewById(
-                        R.id.bookmarksRecyclerView
-                );
 
-        bookmarksEmptyText =
-                view.findViewById(
-                        R.id.bookmarksEmptyText
-                );
-
-        bookmarkRepository =
-                new BookmarkRepository(
+        libraryPagerAdapter =
+                new LibraryPagerAdapter(
                         requireActivity()
-                                .getApplication()
                 );
 
-        bookmarkAdapter =
-                new BookmarkAdapter();
 
-        bookmarkAdapter.setOnBookmarkClickListener(
-                bookmark -> openBookmark(
-                        bookmark
-                )
+        libraryPager.setAdapter(
+                libraryPagerAdapter
         );
 
-        bookmarksRecyclerView.setLayoutManager(
-                new LinearLayoutManager(
-                        requireContext()
-                )
-        );
-
-        bookmarksRecyclerView.setAdapter(
-                bookmarkAdapter
-        );
-
-        findMorePage =
-                view.findViewById(
-                        R.id.findMorePage
-                );
-
 
         // -----------------------------------------------------
-        // Grid spacing
+        // Buttons
         // -----------------------------------------------------
-
-        gridSpacing =
-                new GridSpacingItemDecoration(
-                        16
-                );
-
-
-        // -----------------------------------------------------
-        // Set everything up
-        // -----------------------------------------------------
-
-        setupRecyclerView();
-
-        setupViewModel();
-
-
-        bookIngestor =
-                new BookIngestor(
-                        requireContext(),
-                        viewModel.getRepository()
-                );
-
 
         setupButtons();
 
@@ -356,949 +214,23 @@ public class LibraryFragment extends Fragment {
         // Start on Library
         // -----------------------------------------------------
 
+        libraryPager.setCurrentItem(
+                0,
+                false
+        );
+
+
         bottomNavigation.setSelectedItemId(
                 R.id.nav_library
         );
-
-        requireActivity()
-                .getOnBackPressedDispatcher()
-                .addCallback(
-                        getViewLifecycleOwner(),
-                        new OnBackPressedCallback(true) {
-
-                            @Override
-                            public void handleOnBackPressed() {
-
-                                if (settingsPanel.getVisibility() == View.VISIBLE) {
-
-                                    hideSettings();
-
-                                    return;
-                                }
-
-                                int selectedId =
-                                        bottomNavigation
-                                                .getSelectedItemId();
-
-                                if (selectedId != R.id.nav_library) {
-
-                                    bottomNavigation
-                                            .setSelectedItemId(
-                                                    R.id.nav_library
-                                            );
-
-                                    return;
-                                }
-
-                                setEnabled(false);
-
-                                requireActivity()
-                                        .onBackPressed();
-                            }
-                        }
-                );
     }
 
-
-    // =========================================================
-    // RecyclerView
-    // =========================================================
-
-    private void setupRecyclerView() {
-
-        adapter =
-                new BookAdapter();
-
-
-        // -----------------------------------------------------
-        // Normal card click
-        // -----------------------------------------------------
-
-        adapter.setOnBookClickListener(
-                book -> openBook(book)
-        );
-
-
-        // -----------------------------------------------------
-        // Three-dot button
-        // -----------------------------------------------------
-
-        adapter.setOnBookMoreClickListener(
-                book -> showBookMenu(book)
-        );
-
-
-        // -----------------------------------------------------
-        // Default list layout
-        // -----------------------------------------------------
-
-        bookRecyclerView.setLayoutManager(
-                new LinearLayoutManager(
-                        requireContext()
-                )
-        );
-
-
-        bookRecyclerView.setAdapter(
-                adapter
-        );
-    }
-
-    private void openBookmark(
-            Bookmark bookmark
-    ) {
-
-        Bundle args =
-                new Bundle();
-
-        args.putInt(
-                "bookId",
-                bookmark.bookId
-        );
-
-        args.putString(
-                "bookmarkLocator",
-                bookmark.locatorJson
-        );
-
-        ReaderFragment readerFragment =
-                new ReaderFragment();
-
-        readerFragment.setArguments(
-                args
-        );
-
-        requireActivity()
-                .getSupportFragmentManager()
-                .beginTransaction()
-                .replace(
-                        R.id.fragmentContainer,
-                        readerFragment
-                )
-                .addToBackStack(null)
-                .commit();
-    }
-
-    // =========================================================
-    // Open book
-    // =========================================================
-
-    private void openBook(Book book) {
-
-        Bundle args =
-                new Bundle();
-
-
-        args.putInt(
-                "bookId",
-                book.bookId
-        );
-
-
-        ReaderFragment readerFragment =
-                new ReaderFragment();
-
-
-        readerFragment.setArguments(
-                args
-        );
-
-
-        requireActivity()
-                .getSupportFragmentManager()
-                .beginTransaction()
-                .replace(
-                        R.id.fragmentContainer,
-                        readerFragment
-                )
-                .addToBackStack(null)
-                .commit();
-    }
-
-
-    // =========================================================
-    // Three-dot menu
-    // =========================================================
-
-    private void showBookMenu(Book book) {
-
-        String[] options = {
-                "Book details",
-                "Remove from library"
-        };
-
-
-        new AlertDialog.Builder(
-                requireContext()
-        )
-                .setTitle(
-                        book.title
-                )
-                .setItems(
-                        options,
-                        (dialog, which) -> {
-
-                            if (which == 0) {
-
-                                showBookDetails(
-                                        book
-                                );
-
-                            } else if (which == 1) {
-
-                                confirmRemoveBook(
-                                        book
-                                );
-                            }
-                        }
-                )
-                .show();
-    }
-
-
-    // =========================================================
-    // Book details
-    // =========================================================
-
-    private void showBookDetails(Book book) {
-
-        String author =
-                book.author != null
-                        ? book.author
-                        : "Unknown author";
-
-
-        String format =
-                book.format != null
-                        ? book.format.toUpperCase()
-                        : "Unknown";
-
-
-        String details =
-                "Title: "
-                        + book.title
-                        + "\n\n"
-                        + "Author: "
-                        + author
-                        + "\n\n"
-                        + "Format: "
-                        + format
-                        + "\n\n"
-                        + "Series: Not set"
-                        + "\n\n"
-                        + "Progress: Not started"
-                        + "\n\n"
-                        + "Tags: None";
-
-
-        new AlertDialog.Builder(
-                requireContext()
-        )
-                .setTitle(
-                        "Book details"
-                )
-                .setMessage(
-                        details
-                )
-                .setPositiveButton(
-                        "Open book",
-                        (dialog, which) ->
-                                openBook(book)
-                )
-                .setNegativeButton(
-                        "Close",
-                        null
-                )
-                .show();
-    }
-
-
-    // =========================================================
-    // Remove confirmation
-    // =========================================================
-
-    private void confirmRemoveBook(
-            Book book
-    ) {
-
-        new AlertDialog.Builder(
-                requireContext()
-        )
-                .setTitle(
-                        "Remove book?"
-                )
-                .setMessage(
-                        "Remove \""
-                                + book.title
-                                + "\" from your library?"
-                )
-                .setNegativeButton(
-                        "Cancel",
-                        null
-                )
-                .setPositiveButton(
-                        "Remove",
-                        (dialog, which) ->
-                                removeBook(book)
-                )
-                .show();
-    }
-
-
-    // =========================================================
-    // Remove book
-    // =========================================================
-
-    private void removeBook(Book book) {
-
-        // -----------------------------------------------------
-        // Delete database record
-        // -----------------------------------------------------
-
-        viewModel
-                .getRepository()
-                .deleteBook(book);
-
-
-        // -----------------------------------------------------
-        // Delete local book file
-        // -----------------------------------------------------
-
-        if (
-                book.filePath != null
-                        && !book.filePath.isEmpty()
-        ) {
-
-            File bookFile =
-                    new File(
-                            book.filePath
-                    );
-
-
-            if (bookFile.exists()) {
-
-                boolean deleted =
-                        bookFile.delete();
-
-
-                if (!deleted) {
-
-                    bookFile.deleteOnExit();
-                }
-            }
-        }
-
-
-        // -----------------------------------------------------
-        // Delete generated cover
-        // -----------------------------------------------------
-
-        if (
-                book.coverPath != null
-                        && !book.coverPath.isEmpty()
-        ) {
-
-            File coverFile =
-                    new File(
-                            book.coverPath
-                    );
-
-
-            if (coverFile.exists()) {
-
-                boolean deleted =
-                        coverFile.delete();
-
-
-                if (!deleted) {
-
-                    coverFile.deleteOnExit();
-                }
-            }
-        }
-
-
-        Toast.makeText(
-                requireContext(),
-                "Removed from library",
-                Toast.LENGTH_SHORT
-        ).show();
-    }
-
-
-    // =========================================================
-    // Toggle list/grid
-    // =========================================================
-
-    private void toggleViewMode() {
-
-        isGridView =
-                !isGridView;
-
-
-        adapter.setGridMode(
-                isGridView
-        );
-
-
-        if (isGridView) {
-
-            GridLayoutManager gridLayoutManager =
-                    new GridLayoutManager(
-                            requireContext(),
-                            2
-                    );
-
-
-            bookRecyclerView.setLayoutManager(
-                    gridLayoutManager
-            );
-
-
-            bookRecyclerView.addItemDecoration(
-                    gridSpacing
-            );
-
-
-            viewModeButton.setImageResource(
-                    R.drawable.ic_view_grid
-            );
-
-
-            viewModeButton.setContentDescription(
-                    "Grid view"
-            );
-
-        } else {
-
-            bookRecyclerView.setLayoutManager(
-                    new LinearLayoutManager(
-                            requireContext()
-                    )
-            );
-
-
-            bookRecyclerView.removeItemDecoration(
-                    gridSpacing
-            );
-
-
-            viewModeButton.setImageResource(
-                    R.drawable.ic_view_list
-            );
-
-
-            viewModeButton.setContentDescription(
-                    "List view"
-            );
-        }
-    }
-
-
-    // =========================================================
-    // ViewModel
-    // =========================================================
-
-    private void setupViewModel() {
-
-        viewModel =
-                new ViewModelProvider(this)
-                        .get(
-                                LibraryViewModel.class
-                        );
-
-
-        viewModel.getBooks().observe(
-                getViewLifecycleOwner(),
-                books -> {
-
-                    // -----------------------------------------
-                    // Keep complete library list
-                    // -----------------------------------------
-
-                    allBooks.clear();
-
-                    if (books != null) {
-
-                        allBooks.addAll(
-                                books
-                        );
-                    }
-
-                    // Give BookmarkAdapter the complete
-                    // library list, not search results.
-
-                    bookmarkAdapter.setBooks(
-                            allBooks
-                    );
-
-                    // -----------------------------------------
-                    // Apply current search
-                    // -----------------------------------------
-
-                    applySearch();
-
-
-                    // -----------------------------------------
-                    // Empty state
-                    // -----------------------------------------
-
-                    boolean isEmpty =
-                            allBooks.isEmpty();
-
-
-                    emptyLibrary.setVisibility(
-                            isEmpty
-                                    ? View.VISIBLE
-                                    : View.GONE
-                    );
-
-
-                    /*
-                     * Only show the RecyclerView when the
-                     * library actually contains books.
-                     *
-                     * The search itself can produce zero
-                     * results, so applySearch() handles that
-                     * separately.
-                     */
-
-                    bookRecyclerView.setVisibility(
-                            isEmpty
-                                    ? View.GONE
-                                    : View.VISIBLE
-                    );
-                }
-        );
-    }
-
-
-    // =========================================================
-    // Search
-    // =========================================================
-
-    private void showSearchDialog() {
-
-        final EditText searchInput =
-                new EditText(
-                        requireContext()
-                );
-
-
-        searchInput.setSingleLine(
-                true
-        );
-
-
-        searchInput.setHint(
-                "Title, author, or format"
-        );
-
-
-        searchInput.setInputType(
-                InputType.TYPE_CLASS_TEXT
-        );
-
-
-        if (!searchQuery.isEmpty()) {
-
-            searchInput.setText(
-                    searchQuery
-            );
-
-
-            searchInput.setSelection(
-                    searchInput.length()
-            );
-        }
-
-
-        AlertDialog dialog =
-                new AlertDialog.Builder(
-                        requireContext()
-                )
-                        .setTitle(
-                                "Search library"
-                        )
-                        .setView(
-                                searchInput
-                        )
-                        .setPositiveButton(
-                                "Search",
-                                null
-                        )
-                        .setNeutralButton(
-                                "Clear",
-                                null
-                        )
-                        .setNegativeButton(
-                                "Cancel",
-                                null
-                        )
-                        .create();
-
-
-        dialog.setOnShowListener(
-                ignored -> {
-
-                    dialog.getButton(
-                            AlertDialog.BUTTON_POSITIVE
-                    ).setOnClickListener(
-                            v -> {
-
-                                searchQuery =
-                                        searchInput
-                                                .getText()
-                                                .toString()
-                                                .trim();
-
-
-                                applySearch();
-
-
-                                dialog.dismiss();
-                            }
-                    );
-
-
-                    dialog.getButton(
-                            AlertDialog.BUTTON_NEUTRAL
-                    ).setOnClickListener(
-                            v -> {
-
-                                searchQuery =
-                                        "";
-
-
-                                applySearch();
-
-
-                                dialog.dismiss();
-                            }
-                    );
-
-
-                    searchInput.requestFocus();
-
-
-                    dialog.getWindow()
-                            .setSoftInputMode(
-                                    android.view.WindowManager
-                                            .LayoutParams
-                                            .SOFT_INPUT_STATE_ALWAYS_VISIBLE
-                            );
-                }
-        );
-
-
-        dialog.show();
-    }
-
-
-    private void applySearch() {
-
-        if (adapter == null) {
-            return;
-        }
-
-
-        // ---------------------------------------------------------
-        // Start with the complete library
-        // ---------------------------------------------------------
-
-        List<Book> filteredBooks =
-                new ArrayList<>();
-
-
-        if (
-                searchQuery == null
-                        || searchQuery.isEmpty()
-        ) {
-
-            filteredBooks.addAll(
-                    allBooks
-            );
-
-        } else {
-
-            String query =
-                    searchQuery
-                            .toLowerCase(
-                                    Locale.ROOT
-                            );
-
-
-            // -----------------------------------------------------
-            // Search title, author, and format
-            // -----------------------------------------------------
-
-            for (Book book : allBooks) {
-
-                if (book == null) {
-                    continue;
-                }
-
-
-                String title =
-                        book.title != null
-                                ? book.title
-                                : "";
-
-
-                String author =
-                        book.author != null
-                                ? book.author
-                                : "";
-
-
-                String format =
-                        book.format != null
-                                ? book.format
-                                : "";
-
-
-                boolean matches =
-                        title.toLowerCase(
-                                Locale.ROOT
-                        ).contains(query)
-                                ||
-                                author.toLowerCase(
-                                        Locale.ROOT
-                                ).contains(query)
-                                ||
-                                format.toLowerCase(
-                                        Locale.ROOT
-                                ).contains(query);
-
-
-                if (matches) {
-
-                    filteredBooks.add(
-                            book
-                    );
-                }
-            }
-        }
-
-
-        // ---------------------------------------------------------
-        // Sort results
-        // ---------------------------------------------------------
-
-        sortBooks(
-                filteredBooks
-        );
-
-
-        // ---------------------------------------------------------
-        // Show results
-        // ---------------------------------------------------------
-
-        adapter.setBooks(
-                filteredBooks
-        );
-    }
-
-    private void sortBooks(
-            List<Book> books
-    ) {
-
-        Comparator<Book> comparator;
-
-
-        switch (sortMode) {
-
-            case 1:
-
-                // -------------------------------------------------
-                // Author A-Z
-                // -------------------------------------------------
-
-                comparator =
-                        Comparator.comparing(
-                                book ->
-                                        book.author != null
-                                                ? book.author
-                                                : "",
-                                String.CASE_INSENSITIVE_ORDER
-                        );
-
-                break;
-
-
-            case 2:
-
-                // -------------------------------------------------
-                // Date added
-                // -------------------------------------------------
-
-                comparator =
-                        Comparator.comparingLong(
-                                book ->
-                                        book.addedAt
-                        );
-
-                break;
-
-
-            case 3:
-
-                // -------------------------------------------------
-                // Format
-                // -------------------------------------------------
-
-                comparator =
-                        Comparator.comparing(
-                                book ->
-                                        book.format != null
-                                                ? book.format
-                                                : "",
-                                String.CASE_INSENSITIVE_ORDER
-                        );
-
-                break;
-
-
-            case 0:
-
-            default:
-
-                // -------------------------------------------------
-                // Title A-Z
-                // -------------------------------------------------
-
-                comparator =
-                        Comparator.comparing(
-                                book ->
-                                        book.title != null
-                                                ? book.title
-                                                : "",
-                                String.CASE_INSENSITIVE_ORDER
-                        );
-
-                break;
-        }
-
-
-        if (sortDescending) {
-
-            comparator =
-                    comparator.reversed();
-        }
-
-
-        books.sort(
-                comparator
-        );
-    }
-
-
-    private void showSortDialog() {
-
-        String[] sortOptions = {
-                "Title",
-                "Author",
-                "Date added",
-                "Format"
-        };
-
-
-        String[] directionOptions = {
-                "Ascending",
-                "Descending"
-        };
-
-
-        new AlertDialog.Builder(
-                requireContext()
-        )
-                .setTitle(
-                        "Sort library"
-                )
-                .setSingleChoiceItems(
-                        sortOptions,
-                        sortMode,
-                        (dialog, which) -> {
-
-                            sortMode =
-                                    which;
-
-                            dialog.dismiss();
-
-                            showSortDirectionDialog();
-                        }
-                )
-                .setNegativeButton(
-                        "Cancel",
-                        null
-                )
-                .show();
-    }
-
-    private void showSortDirectionDialog() {
-
-        String[] directionOptions = {
-                "Ascending",
-                "Descending"
-        };
-
-
-        int checked =
-                sortDescending
-                        ? 1
-                        : 0;
-
-
-        new AlertDialog.Builder(
-                requireContext()
-        )
-                .setTitle(
-                        "Sort direction"
-                )
-                .setSingleChoiceItems(
-                        directionOptions,
-                        checked,
-                        (dialog, which) -> {
-
-                            sortDescending =
-                                    which == 1;
-
-
-                            applySearch();
-
-
-                            dialog.dismiss();
-                        }
-                )
-                .setNegativeButton(
-                        "Cancel",
-                        null
-                )
-                .show();
-    }
 
     // =========================================================
     // Buttons
     // =========================================================
 
     private void setupButtons() {
-
-        // -----------------------------------------------------
-        // Add book
-        // -----------------------------------------------------
-
-        addBookButton.setOnClickListener(
-                v -> {
-
-                    filePickerLauncher.launch(
-                            new String[]{
-                                    "application/epub+zip",
-                                    "application/pdf",
-                                    "text/plain"
-                            }
-                    );
-                }
-        );
 
 
         // -----------------------------------------------------
@@ -1308,38 +240,21 @@ public class LibraryFragment extends Fragment {
         searchButton.setOnClickListener(
                 v -> {
 
-                    /*
-                     * Search only applies to the local library.
-                     *
-                     * Find More will eventually have its own
-                     * internet/source search system.
-                     */
+                    libraryPager.setCurrentItem(
+                            0,
+                            true
+                    );
 
-                    if (
-                            bottomNavigation
-                                    .getSelectedItemId()
-                                    != R.id.nav_library
-                    ) {
 
-                        bottomNavigation
-                                .setSelectedItemId(
-                                        R.id.nav_library
-                                );
+                    LibraryPageFragment page =
+                            getLibraryPage();
+
+
+                    if (page != null) {
+
+                        page.showSearchDialog();
                     }
-
-
-                    showSearchDialog();
                 }
-        );
-
-
-        // -----------------------------------------------------
-        // List / Grid
-        // -----------------------------------------------------
-
-        viewModeButton.setOnClickListener(
-                v ->
-                        toggleViewMode()
         );
 
 
@@ -1348,7 +263,48 @@ public class LibraryFragment extends Fragment {
         // -----------------------------------------------------
 
         sortButton.setOnClickListener(
-                v -> showSortDialog()
+                v -> {
+
+                    libraryPager.setCurrentItem(
+                            0,
+                            true
+                    );
+
+
+                    LibraryPageFragment page =
+                            getLibraryPage();
+
+
+                    if (page != null) {
+
+                        page.showSortDialog();
+                    }
+                }
+        );
+
+
+        // -----------------------------------------------------
+        // Add book
+        // -----------------------------------------------------
+
+        addBookButton.setOnClickListener(
+                v -> {
+
+                    libraryPager.setCurrentItem(
+                            0,
+                            true
+                    );
+
+
+                    LibraryPageFragment page =
+                            getLibraryPage();
+
+
+                    if (page != null) {
+
+                        page.startImport();
+                    }
+                }
         );
 
 
@@ -1360,9 +316,11 @@ public class LibraryFragment extends Fragment {
                 v -> showSettings()
         );
 
+
         settingsBackButton.setOnClickListener(
                 v -> hideSettings()
         );
+
 
         logoutButton.setOnClickListener(
                 v -> confirmLogout()
@@ -1379,421 +337,246 @@ public class LibraryFragment extends Fragment {
                     int itemId =
                             item.getItemId();
 
-                    if (itemId == R.id.nav_library) {
 
-                        showLibraryPage();
+                    if (
+                            itemId
+                                    == R.id.nav_library
+                    ) {
+
+                        libraryPager.setCurrentItem(
+                                0,
+                                true
+                        );
+
+                        return true;
+                    }
+
+
+                    if (
+                            itemId
+                                    == R.id.nav_bookmarks
+                    ) {
+
+                        libraryPager.setCurrentItem(
+                                1,
+                                true
+                        );
 
                         return true;
                     }
 
-                    if (itemId == R.id.nav_bookmarks) {
 
-                        showBookmarksPage();
+                    if (
+                            itemId
+                                    == R.id.nav_find_more
+                    ) {
+
+                        libraryPager.setCurrentItem(
+                                2,
+                                true
+                        );
 
                         return true;
                     }
 
-                    if (itemId == R.id.nav_find_more) {
-
-                        showFindMorePage();
-
-                        return true;
-                    }
 
                     return false;
                 }
         );
+
+
+        // -----------------------------------------------------
+        // Swipe
+        // -----------------------------------------------------
+
+        libraryPager.registerOnPageChangeCallback(
+                new ViewPager2.OnPageChangeCallback() {
+
+                    @Override
+                    public void onPageSelected(
+                            int position
+                    ) {
+
+                        super.onPageSelected(
+                                position
+                        );
+
+
+                        if (position == 0) {
+
+                            bottomNavigation
+                                    .setSelectedItemId(
+                                            R.id.nav_library
+                                    );
+
+                        } else if (position == 1) {
+
+                            bottomNavigation
+                                    .setSelectedItemId(
+                                            R.id.nav_bookmarks
+                                    );
+
+                        } else if (position == 2) {
+
+                            bottomNavigation
+                                    .setSelectedItemId(
+                                            R.id.nav_find_more
+                                    );
+                        }
+                    }
+                }
+        );
     }
+
+
+    // =========================================================
+    // Get Library page
+    // =========================================================
+
+    @Nullable
+    private LibraryPageFragment getLibraryPage() {
+
+        if (libraryPager == null) {
+            return null;
+        }
+
+
+        String tag =
+                "f"
+                        + R.id.libraryPager
+                        + ":"
+                        + libraryPager.getCurrentItem();
+
+
+        Fragment fragment =
+                getChildFragmentManager()
+                        .findFragmentByTag(
+                                tag
+                        );
+
+
+        if (
+                fragment
+                        instanceof LibraryPageFragment
+        ) {
+
+            return (LibraryPageFragment) fragment;
+        }
+
+
+        return null;
+    }
+
+
+    // =========================================================
+    // Settings
+    // =========================================================
 
     private void showSettings() {
 
-        settingsPanel.setVisibility(View.VISIBLE);
+        settingsPanel.setVisibility(
+                View.VISIBLE
+        );
+
 
         FirebaseUser user =
-                FirebaseAuth.getInstance().getCurrentUser();
+                FirebaseAuth
+                        .getInstance()
+                        .getCurrentUser();
+
 
         if (user != null) {
 
-            String email = user.getEmail();
+            String email =
+                    user.getEmail();
 
-            if (email != null && !email.isEmpty()) {
-                settingsEmail.setText(email);
+
+            if (
+                    email != null
+                            && !email.isEmpty()
+            ) {
+
+                settingsEmail.setText(
+                        email
+                );
+
             } else {
-                settingsEmail.setText("Signed in");
+
+                settingsEmail.setText(
+                        "Signed in"
+                );
             }
 
         } else {
-            settingsEmail.setText("Not signed in");
+
+            settingsEmail.setText(
+                    "Not signed in"
+            );
         }
     }
 
+
     private void hideSettings() {
 
-        settingsPanel.setVisibility(View.GONE);
+        settingsPanel.setVisibility(
+                View.GONE
+        );
     }
+
+
+    // =========================================================
+    // Logout
+    // =========================================================
 
     private void confirmLogout() {
 
-        new AlertDialog.Builder(requireContext())
-                .setTitle("Log out?")
-                .setMessage("Are you sure you want to log out of Oghma?")
+        new AlertDialog.Builder(
+                requireContext()
+        )
+                .setTitle(
+                        "Log out?"
+                )
+                .setMessage(
+                        "Are you sure you want to log out of Oghma?"
+                )
                 .setNegativeButton(
                         "Cancel",
                         null
                 )
                 .setPositiveButton(
                         "Log out",
-                        (dialog, which) -> logout()
+                        (dialog, which) ->
+                                logout()
                 )
                 .show();
     }
 
+
     private void logout() {
 
-        FirebaseAuth.getInstance().signOut();
+        FirebaseAuth
+                .getInstance()
+                .signOut();
+
 
         Intent intent =
                 new Intent(
                         requireContext(),
-                        com.reader.oghma.LoginActivity.class
+                        LoginActivity.class
                 );
+
 
         intent.setFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_CLEAR_TASK
         );
 
-        startActivity(intent);
+
+        startActivity(
+                intent
+        );
+
 
         requireActivity().finish();
-    }
-
-
-    // =========================================================
-    // Library page
-    // =========================================================
-
-    private void showLibraryPage() {
-
-        emptyLibrary.setVisibility(
-                View.VISIBLE
-        );
-
-        bookRecyclerView.setVisibility(
-                View.VISIBLE
-        );
-
-        bookmarksPage.setVisibility(
-                View.GONE
-        );
-
-        findMorePage.setVisibility(
-                View.GONE
-        );
-
-        viewModeButton.setVisibility(
-                View.VISIBLE
-        );
-
-        addBookButton.setVisibility(
-                View.VISIBLE
-        );
-    }
-
-
-    private void showBookmarksPage() {
-
-        emptyLibrary.setVisibility(
-                View.GONE
-        );
-
-        bookRecyclerView.setVisibility(
-                View.GONE
-        );
-
-        bookmarksPage.setVisibility(
-                View.VISIBLE
-        );
-
-        findMorePage.setVisibility(
-                View.GONE
-        );
-
-        viewModeButton.setVisibility(
-                View.GONE
-        );
-
-        addBookButton.setVisibility(
-                View.GONE
-        );
-
-        loadBookmarks();
-    }
-
-    private void loadBookmarks() {
-
-        bookmarkRepository.getAllBookmarks(
-                bookmarks -> {
-
-                    if (!isAdded()) {
-                        return;
-                    }
-
-                    requireActivity().runOnUiThread(
-                            () -> {
-
-                                if (
-                                        bookmarks == null
-                                                || bookmarks.isEmpty()
-                                ) {
-
-                                    bookmarksRecyclerView
-                                            .setVisibility(
-                                                    View.GONE
-                                            );
-
-                                    bookmarksEmptyText
-                                            .setVisibility(
-                                                    View.VISIBLE
-                                            );
-
-                                    bookmarkAdapter
-                                            .setBookmarks(
-                                                    null
-                                            );
-
-                                    return;
-                                }
-
-                                bookmarksRecyclerView
-                                        .setVisibility(
-                                                View.VISIBLE
-                                        );
-
-                                bookmarksEmptyText
-                                        .setVisibility(
-                                                View.GONE
-                                        );
-
-                                bookmarkAdapter
-                                        .setBookmarks(
-                                                bookmarks
-                                        );
-                            }
-                    );
-                }
-        );
-    }
-
-    private void showFindMorePage() {
-
-        emptyLibrary.setVisibility(
-                View.GONE
-        );
-
-        bookRecyclerView.setVisibility(
-                View.GONE
-        );
-
-        bookmarksPage.setVisibility(
-                View.GONE
-        );
-
-        findMorePage.setVisibility(
-                View.VISIBLE
-        );
-
-        viewModeButton.setVisibility(
-                View.GONE
-        );
-
-        addBookButton.setVisibility(
-                View.GONE
-        );
-    }
-
-
-    // =========================================================
-    // Import book
-    // =========================================================
-
-    private void importBook(Uri uri) {
-
-        String fileName =
-                getFileName(uri);
-
-
-        if (fileName == null) {
-
-            Toast.makeText(
-                    requireContext(),
-                    "Could not read file name",
-                    Toast.LENGTH_SHORT
-            ).show();
-
-            return;
-        }
-
-
-        String format =
-                getFormat(fileName);
-
-
-        if (format == null) {
-
-            Toast.makeText(
-                    requireContext(),
-                    "Unsupported book format",
-                    Toast.LENGTH_SHORT
-            ).show();
-
-            return;
-        }
-
-
-        try {
-
-            InputStream inputStream =
-                    requireContext()
-                            .getContentResolver()
-                            .openInputStream(uri);
-
-
-            if (inputStream == null) {
-
-                Toast.makeText(
-                        requireContext(),
-                        "Could not open selected file",
-                        Toast.LENGTH_SHORT
-                ).show();
-
-                return;
-            }
-
-
-            bookIngestor.importBook(
-                    inputStream,
-                    fileName,
-                    format
-            );
-
-
-        } catch (Exception e) {
-
-            e.printStackTrace();
-
-
-            Toast.makeText(
-                    requireContext(),
-                    "Could not import book",
-                    Toast.LENGTH_SHORT
-            ).show();
-        }
-    }
-
-
-    // =========================================================
-    // Get filename
-    // =========================================================
-
-    private String getFileName(
-            Uri uri
-    ) {
-
-        String fileName =
-                null;
-
-
-        Cursor cursor =
-                requireContext()
-                        .getContentResolver()
-                        .query(
-                                uri,
-                                null,
-                                null,
-                                null,
-                                null
-                        );
-
-
-        if (cursor != null) {
-
-            try {
-
-                if (cursor.moveToFirst()) {
-
-                    int nameIndex =
-                            cursor.getColumnIndex(
-                                    OpenableColumns
-                                            .DISPLAY_NAME
-                            );
-
-
-                    if (nameIndex >= 0) {
-
-                        fileName =
-                                cursor.getString(
-                                        nameIndex
-                                );
-                    }
-                }
-
-
-            } finally {
-
-                cursor.close();
-            }
-        }
-
-
-        return fileName;
-    }
-
-
-    // =========================================================
-    // Get format
-    // =========================================================
-
-    private String getFormat(
-            String fileName
-    ) {
-
-        String lowerName =
-                fileName.toLowerCase(
-                        Locale.ROOT
-                );
-
-
-        if (
-                lowerName.endsWith(
-                        ".epub"
-                )
-        ) {
-
-            return "epub";
-        }
-
-
-        if (
-                lowerName.endsWith(
-                        ".pdf"
-                )
-        ) {
-
-            return "pdf";
-        }
-
-
-        if (
-                lowerName.endsWith(
-                        ".txt"
-                )
-        ) {
-
-            return "txt";
-        }
-
-
-        return null;
     }
 }

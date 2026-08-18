@@ -8,6 +8,7 @@
     android:background="@color/background"
     android:fitsSystemWindows="true">
 
+
     <!-- ===================================================== -->
     <!-- Top header -->
     <!-- ===================================================== -->
@@ -71,143 +72,18 @@
 
 
     <!-- ===================================================== -->
-    <!-- Bookmarks page -->
+    <!-- Swipeable pages -->
     <!-- ===================================================== -->
 
-    <FrameLayout
-        android:id="@+id/bookmarksPage"
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/libraryPager"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:visibility="gone"
         android:background="@color/background"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/libraryHeader">
-
-        <TextView
-            android:id="@+id/bookmarksEmptyText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="No bookmarks yet"
-            android:textColor="@color/text_secondary"
-            android:textSize="18sp"
-            android:visibility="gone" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/bookmarksRecyclerView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:paddingStart="12dp"
-            android:paddingTop="12dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="24dp" />
-
-    </FrameLayout>
-
-
-    <!-- ===================================================== -->
-    <!-- Find More page -->
-    <!-- ===================================================== -->
-
-    <FrameLayout
-        android:id="@+id/findMorePage"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:visibility="gone"
-        android:background="@color/background"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/libraryHeader">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="Find More"
-            android:textColor="@color/text_primary"
-            android:textSize="24sp"
-            android:textStyle="bold" />
-
-    </FrameLayout>
-
-
-    <!-- ===================================================== -->
-    <!-- Empty library -->
-    <!-- ===================================================== -->
-
-    <LinearLayout
-        android:id="@+id/emptyLibrary"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:padding="32dp"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/libraryHeader">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Your library is empty"
-            android:textColor="@color/text_primary"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center"
-            android:text="Add a book to start reading."
-            android:textColor="@color/text_secondary"
-            android:textSize="15sp" />
-
-    </LinearLayout>
-
-
-    <!-- ===================================================== -->
-    <!-- Books -->
-    <!-- ===================================================== -->
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/bookRecyclerView"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:clipToPadding="false"
-        android:paddingStart="10dp"
-        android:paddingTop="8dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="96dp"
-        android:visibility="gone"
         app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/libraryHeader" />
-
-
-    <!-- ===================================================== -->
-    <!-- View mode -->
-    <!-- ===================================================== -->
-
-    <ImageButton
-        android:id="@+id/viewModeButton"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_marginEnd="20dp"
-        android:layout_marginBottom="132dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Change library view"
-        android:padding="12dp"
-        android:src="@drawable/ic_view_list"
-        app:tint="@color/text_primary"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent" />
 
 
     <!-- ===================================================== -->
@@ -222,29 +98,11 @@
         android:layout_marginBottom="76dp"
         android:contentDescription="Add book"
         android:src="@android:drawable/ic_input_add"
-        app:tint="@color/on_primary"
         app:backgroundTint="@color/primary"
+        app:tint="@color/on_primary"
         app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
         app:layout_constraintEnd_toEndOf="parent" />
 
-
-    <!-- ===================================================== -->
-    <!-- Bottom navigation -->
-    <!-- ===================================================== -->
-
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/bottomNavigation"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:background="@color/background_deep"
-        android:elevation="8dp"
-        app:itemIconTint="@color/text_secondary"
-        app:itemTextColor="@color/text_secondary"
-        app:labelVisibilityMode="labeled"
-        app:menu="@menu/library_navigation_menu"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
 
     <!-- ===================================================== -->
     <!-- Settings panel -->
@@ -267,18 +125,13 @@
             android:layout_height="match_parent"
             android:orientation="vertical">
 
-            <!-- Settings header -->
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@color/background_deep"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingStart="8dp"
-                android:paddingTop="8dp"
-                android:paddingEnd="20dp"
-                android:paddingBottom="8dp">
+                android:padding="12dp">
 
                 <ImageButton
                     android:id="@+id/settingsBackButton"
@@ -286,30 +139,26 @@
                     android:layout_height="48dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Back"
-                    android:padding="12dp"
-                    android:src="@android:drawable/ic_menu_revert"
+                    android:src="@android:drawable/ic_media_previous"
                     app:tint="@color/text_primary" />
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:layout_marginStart="8dp"
                     android:text="Settings"
                     android:textColor="@color/text_primary"
-                    android:textSize="26sp"
+                    android:textSize="24sp"
                     android:textStyle="bold" />
 
             </LinearLayout>
 
 
-            <!-- Account -->
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="20dp">
+                android:padding="24dp">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -321,43 +170,47 @@
 
                 <TextView
                     android:id="@+id/settingsEmail"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="Not signed in"
                     android:textColor="@color/text_secondary"
                     android:textSize="15sp" />
 
+                <TextView
+                    android:id="@+id/logoutButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:padding="16dp"
+                    android:text="Log out"
+                    android:textColor="@color/text_primary"
+                    android:textSize="16sp" />
+
             </LinearLayout>
-
-
-            <!-- Divider -->
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/surface" />
-
-
-            <!-- Logout -->
-
-            <TextView
-                android:id="@+id/logoutButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:clickable="true"
-                android:focusable="true"
-                android:paddingStart="20dp"
-                android:paddingTop="20dp"
-                android:paddingEnd="20dp"
-                android:paddingBottom="20dp"
-                android:text="Log out"
-                android:textColor="@color/text_primary"
-                android:textSize="17sp"
-                android:textStyle="bold"
-                android:background="?attr/selectableItemBackground" />
 
         </LinearLayout>
 
     </FrameLayout>
+
+
+    <!-- ===================================================== -->
+    <!-- Bottom navigation -->
+    <!-- ===================================================== -->
+
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNavigation"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:background="@color/background_deep"
+        android:elevation="8dp"
+        app:itemIconTint="@color/text_secondary"
+        app:itemTextColor="@color/text_secondary"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/library_navigation_menu"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>
