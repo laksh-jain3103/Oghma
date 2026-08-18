@@ -23,6 +23,7 @@ import com.reader.oghma.data.repository.BookmarkRepository;
 import com.reader.oghma.data.repository.ProgressRepository;
 
 import org.readium.r2.navigator.epub.EpubNavigatorFragment;
+import org.readium.r2.navigator.pdf.PdfNavigatorFragment;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -32,35 +33,88 @@ import java.io.IOException;
 
 public class ReaderFragment extends Fragment {
 
+    // =========================================================
+    // Views
+    // =========================================================
+
     private TextView readerText;
     private TextView readerTitle;
+
     private ImageButton backButton;
+
     private FrameLayout readerContainer;
 
+
+    // =========================================================
+    // Repositories
+    // =========================================================
+
     private BookRepository repository;
+
     private BookmarkRepository bookmarkRepository;
+
     private ProgressRepository progressRepository;
 
+
+    // =========================================================
+    // Reader bridges
+    // =========================================================
+
     private EpubReaderBridge epubReaderBridge;
+
     private PdfReaderBridge pdfReaderBridge;
+
+
+    // =========================================================
+    // Active navigators
+    // =========================================================
 
     private EpubNavigatorFragment epubNavigator;
 
-    private boolean horizontalReadingMode = true;
+    private PdfNavigatorFragment pdfNavigator;
 
-    private int currentBookId = -1;
+
+    // =========================================================
+    // Reading mode
+    //
+    // true  = horizontal / paginated
+    // false = vertical / scrolling
+    // =========================================================
+
+    private boolean horizontalReadingMode =
+            true;
+
+
+    // =========================================================
+    // Current book
+    // =========================================================
+
+    private int currentBookId =
+            -1;
+
 
     /*
-     * If this is not null, the reader was opened
-     * from a bookmark and should start there.
+     * If the reader was opened from a bookmark,
+     * this contains the saved bookmark locator.
+     *
+     * Bookmark location takes priority over normal
+     * reading progress when opening the book.
      */
     private String bookmarkLocator;
 
+
+    // =========================================================
+    // Constructor
+    // =========================================================
 
     public ReaderFragment() {
         // Required empty constructor
     }
 
+
+    // =========================================================
+    // Create view
+    // =========================================================
 
     @Nullable
     @Override
@@ -78,6 +132,10 @@ public class ReaderFragment extends Fragment {
     }
 
 
+    // =========================================================
+    // Setup
+    // =========================================================
+
     @Override
     public void onViewCreated(
             @NonNull View view,
@@ -91,7 +149,7 @@ public class ReaderFragment extends Fragment {
 
 
         // -----------------------------------------------------
-        // Views
+        // Find views
         // -----------------------------------------------------
 
         readerText =
@@ -123,12 +181,15 @@ public class ReaderFragment extends Fragment {
                         R.id.readingModeButton
                 );
 
+
         readingModeButton.setOnClickListener(
-                v -> switchReadingMode()
+                v ->
+                        switchReadingMode()
         );
 
+
         // -----------------------------------------------------
-        // Reader bridges
+        // Create reader bridges
         // -----------------------------------------------------
 
         epubReaderBridge =
@@ -144,7 +205,7 @@ public class ReaderFragment extends Fragment {
 
 
         // -----------------------------------------------------
-        // Repositories
+        // Create repositories
         // -----------------------------------------------------
 
         repository =
@@ -182,12 +243,16 @@ public class ReaderFragment extends Fragment {
         );
 
 
+        // -----------------------------------------------------
+        // Load selected book
+        // -----------------------------------------------------
+
         loadBook();
     }
 
 
     // =========================================================
-    // SAVE PROGRESS WHEN READER IS LEFT
+    // Save progress when leaving the reader
     // =========================================================
 
     @Override
@@ -198,88 +263,131 @@ public class ReaderFragment extends Fragment {
         super.onPause();
     }
 
+
     // =========================================================
     // SWITCH READING MODE
+    //
+    // Works for both EPUB and PDF.
+    //
+    // The current locator is captured first so changing
+    // the presentation does not throw the reader back
+    // to the beginning.
     // =========================================================
 
     private void switchReadingMode() {
 
-        /*
-         * Only EPUB currently has the Readium reading modes.
-         */
-        if (epubNavigator == null) {
+        // -----------------------------------------------------
+        // EPUB
+        // -----------------------------------------------------
 
-            Toast.makeText(
-                    requireContext(),
-                    "Reader is not ready.",
-                    Toast.LENGTH_SHORT
-            ).show();
+        if (epubNavigator != null) {
+
+            epubReaderBridge.getCurrentLocator(
+                    epubNavigator,
+                    locatorJson -> {
+
+                        if (
+                                locatorJson == null
+                                        || locatorJson.trim().isEmpty()
+                        ) {
+
+                            Toast.makeText(
+                                    requireContext(),
+                                    "Could not save the current reading position.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            return;
+                        }
+
+
+                        horizontalReadingMode =
+                                !horizontalReadingMode;
+
+
+                        readerText.setVisibility(
+                                View.VISIBLE
+                        );
+
+
+                        readerText.setText(
+                                horizontalReadingMode
+                                        ? "Switching to horizontal mode..."
+                                        : "Switching to vertical mode..."
+                        );
+
+
+                        reopenEpubAtLocator(
+                                locatorJson
+                        );
+                    }
+            );
 
             return;
         }
 
 
-        /*
-         * Get the exact position where the reader currently is.
-         *
-         * We need this because recreating the Readium navigator
-         * without a locator would potentially send the user
-         * back to the beginning.
-         */
-        epubReaderBridge.getCurrentLocator(
-                epubNavigator,
-                locatorJson -> {
+        // -----------------------------------------------------
+        // PDF
+        // -----------------------------------------------------
 
-                    if (
-                            locatorJson == null
-                                    || locatorJson.trim().isEmpty()
-                    ) {
+        if (pdfNavigator != null) {
 
-                        Toast.makeText(
-                                requireContext(),
-                                "Could not save the current reading position.",
-                                Toast.LENGTH_SHORT
-                        ).show();
+            pdfReaderBridge.getCurrentLocator(
+                    pdfNavigator,
+                    locatorJson -> {
 
-                        return;
+                        if (
+                                locatorJson == null
+                                        || locatorJson.trim().isEmpty()
+                        ) {
+
+                            Toast.makeText(
+                                    requireContext(),
+                                    "Could not save the current reading position.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            return;
+                        }
+
+
+                        horizontalReadingMode =
+                                !horizontalReadingMode;
+
+
+                        readerText.setVisibility(
+                                View.VISIBLE
+                        );
+
+
+                        readerText.setText(
+                                horizontalReadingMode
+                                        ? "Switching to horizontal mode..."
+                                        : "Switching to vertical mode..."
+                        );
+
+
+                        reopenPdfAtLocator(
+                                locatorJson
+                        );
                     }
+            );
+
+            return;
+        }
 
 
-                    /*
-                     * Toggle the mode.
-                     */
-                    horizontalReadingMode =
-                            !horizontalReadingMode;
-
-
-                    /*
-                     * Temporarily show the loading text while
-                     * Readium creates the new navigator.
-                     */
-                    readerText.setVisibility(
-                            View.VISIBLE
-                    );
-
-                    readerText.setText(
-                            horizontalReadingMode
-                                    ? "Switching to horizontal mode..."
-                                    : "Switching to vertical mode..."
-                    );
-
-
-                    /*
-                     * Re-open the EPUB at the exact same locator,
-                     * but with the new reading mode.
-                     */
-                    reopenEpubAtLocator(
-                            locatorJson
-                    );
-                }
-        );
+        Toast.makeText(
+                requireContext(),
+                "Reader is not ready.",
+                Toast.LENGTH_SHORT
+        ).show();
     }
 
+
     // =========================================================
-    // REOPEN EPUB AT CURRENT LOCATION
+    // REOPEN EPUB AT A SAVED LOCATOR
     // =========================================================
 
     private void reopenEpubAtLocator(
@@ -300,6 +408,7 @@ public class ReaderFragment extends Fragment {
                         if (!isAdded()) {
                             return;
                         }
+
 
                         requireActivity().runOnUiThread(
                                 () ->
@@ -324,6 +433,7 @@ public class ReaderFragment extends Fragment {
                             return;
                         }
 
+
                         requireActivity().runOnUiThread(
                                 () ->
                                         readerText.setText(
@@ -345,6 +455,78 @@ public class ReaderFragment extends Fragment {
                 }
         );
     }
+
+
+    // =========================================================
+    // REOPEN PDF AT A SAVED LOCATOR
+    // =========================================================
+
+    private void reopenPdfAtLocator(
+            String locatorJson
+    ) {
+
+        if (currentBookId == -1) {
+            return;
+        }
+
+
+        repository.getBook(
+                currentBookId,
+                book -> {
+
+                    if (book == null) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+
+                        requireActivity().runOnUiThread(
+                                () ->
+                                        readerText.setText(
+                                                "Book not found."
+                                        )
+                        );
+
+                        return;
+                    }
+
+
+                    File pdfFile =
+                            new File(
+                                    book.filePath
+                            );
+
+
+                    if (!pdfFile.exists()) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+
+                        requireActivity().runOnUiThread(
+                                () ->
+                                        readerText.setText(
+                                                "The PDF file could not be found."
+                                        )
+                        );
+
+                        return;
+                    }
+
+
+                    requireActivity().runOnUiThread(
+                            () ->
+                                    openPdf(
+                                            pdfFile,
+                                            locatorJson
+                                    )
+                    );
+                }
+        );
+    }
+
 
     // =========================================================
     // LOAD BOOK
@@ -374,10 +556,8 @@ public class ReaderFragment extends Fragment {
 
 
         /*
-         * Bookmark screen can provide this.
-         *
-         * If it is null, we will load normal reading
-         * progress from ProgressRepository.
+         * If the Library opened this reader from a bookmark,
+         * this contains the bookmark's locator.
          */
         bookmarkLocator =
                 args.getString(
@@ -459,7 +639,9 @@ public class ReaderFragment extends Fragment {
                 )
         ) {
 
-            displayTxtBook(book);
+            displayTxtBook(
+                    book
+            );
 
             return;
         }
@@ -475,7 +657,9 @@ public class ReaderFragment extends Fragment {
                 )
         ) {
 
-            displayEpubBook(book);
+            displayEpubBook(
+                    book
+            );
 
             return;
         }
@@ -491,7 +675,9 @@ public class ReaderFragment extends Fragment {
                 )
         ) {
 
-            displayPdfBook(book);
+            displayPdfBook(
+                    book
+            );
 
             return;
         }
@@ -530,18 +716,22 @@ public class ReaderFragment extends Fragment {
         try {
 
             String content =
-                    readTextFile(file);
+                    readTextFile(
+                            file
+                    );
 
 
             readerText.setText(
                     content
             );
 
+
         } catch (IOException e) {
 
             readerText.setText(
                     "Could not open the book."
             );
+
 
             e.printStackTrace();
         }
@@ -584,16 +774,16 @@ public class ReaderFragment extends Fragment {
 
 
     // =========================================================
-    // LOAD PROGRESS THEN OPEN EPUB
+    // LOAD EPUB PROGRESS
+    //
+    // Bookmark location takes priority.
+    // Otherwise use the last saved reading position.
     // =========================================================
 
     private void loadProgressAndOpenEpub(
             File epubFile
     ) {
 
-        /*
-         * Bookmark location takes priority.
-         */
         if (
                 bookmarkLocator != null
                         && !bookmarkLocator.trim().isEmpty()
@@ -608,11 +798,6 @@ public class ReaderFragment extends Fragment {
         }
 
 
-        /*
-         * No bookmark location.
-         *
-         * Load the last saved reading location.
-         */
         progressRepository.getProgress(
                 currentBookId,
                 progress -> {
@@ -622,7 +807,8 @@ public class ReaderFragment extends Fragment {
                     }
 
 
-                    String progressLocator = null;
+                    String progressLocator =
+                            null;
 
 
                     if (progress != null) {
@@ -678,6 +864,14 @@ public class ReaderFragment extends Fragment {
                         if (!isAdded()) {
                             return;
                         }
+
+
+                        /*
+                         * Clear the PDF reference because
+                         * EPUB is now the active navigator.
+                         */
+                        pdfNavigator =
+                                null;
 
 
                         getChildFragmentManager()
@@ -843,6 +1037,10 @@ public class ReaderFragment extends Fragment {
 
     // =========================================================
     // SAVE READING PROGRESS
+    //
+    // EPUB progress is currently saved here.
+    // PDF progress will be added separately once the PDF
+    // navigator is confirmed working with its locator.
     // =========================================================
 
     private void saveProgress() {
@@ -917,13 +1115,39 @@ public class ReaderFragment extends Fragment {
         }
 
 
+        readerText.setVisibility(
+                View.VISIBLE
+        );
+
+
         readerText.setText(
                 "PDF reader is being loaded..."
         );
 
 
+        openPdf(
+                pdfFile,
+                null
+        );
+    }
+
+
+    // =========================================================
+    // OPEN PDF
+    //
+    // initialLocatorJson can be null when opening normally,
+    // or contain a saved locator when switching modes.
+    // =========================================================
+
+    private void openPdf(
+            File pdfFile,
+            String initialLocatorJson
+    ) {
+
         pdfReaderBridge.openPdf(
                 pdfFile,
+                initialLocatorJson,
+                horizontalReadingMode,
                 new PdfReaderBridge.Callback() {
 
                     @Override
@@ -936,6 +1160,14 @@ public class ReaderFragment extends Fragment {
                         }
 
 
+                        /*
+                         * Clear the EPUB reference because
+                         * PDF is now the active navigator.
+                         */
+                        epubNavigator =
+                                null;
+
+
                         getChildFragmentManager()
                                 .setFragmentFactory(
                                         factory
@@ -946,11 +1178,23 @@ public class ReaderFragment extends Fragment {
                                 .beginTransaction()
                                 .replace(
                                         R.id.readerContainer,
-                                        org.readium.r2.navigator.pdf.PdfNavigatorFragment.class,
+                                        PdfNavigatorFragment.class,
                                         null,
                                         "pdf_navigator"
                                 )
                                 .commit();
+
+
+                        getChildFragmentManager()
+                                .executePendingTransactions();
+
+
+                        pdfNavigator =
+                                (PdfNavigatorFragment)
+                                        getChildFragmentManager()
+                                                .findFragmentByTag(
+                                                        "pdf_navigator"
+                                                );
 
 
                         readerText.setVisibility(
@@ -985,7 +1229,7 @@ public class ReaderFragment extends Fragment {
 
 
     // =========================================================
-    // TEXT FILE READER
+    // READ TXT FILE
     // =========================================================
 
     private String readTextFile(
@@ -999,7 +1243,9 @@ public class ReaderFragment extends Fragment {
         try (
                 BufferedReader reader =
                         new BufferedReader(
-                                new FileReader(file)
+                                new FileReader(
+                                        file
+                                )
                         )
         ) {
 
@@ -1007,7 +1253,8 @@ public class ReaderFragment extends Fragment {
 
 
             while (
-                    (line = reader.readLine())
+                    (line =
+                            reader.readLine())
                             != null
             ) {
 
