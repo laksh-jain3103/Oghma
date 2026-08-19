@@ -54,7 +54,7 @@ public class GoogleBooksTest {
                                         + result.totalItems
                         );
 
-                        if (result.items != null
+                        if (result.items != nullgit
                                 && !result.items.isEmpty()) {
 
                             GoogleBookItem firstBook =
