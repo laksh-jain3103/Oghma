@@ -1,12 +1,29 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.google.services)
 }
 
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { 
+        localProperties.load(it) 
+    }
+}
+
+val googleBooksApiKey = localProperties.getProperty("google.books.api.key") ?: ""
+val googleBooksCert = localProperties.getProperty("google.books.cert") ?: ""
+
 android {
     namespace = "com.reader.oghma"
     compileSdk {
         version = release(37)
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     defaultConfig {
@@ -16,6 +33,9 @@ android {
         versionCode = 1
         versionName = "1.0"
 ;
+        buildConfigField("String", "GOOGLE_BOOKS_API_KEY", "\"${googleBooksApiKey}\"")
+        buildConfigField("String", "GOOGLE_BOOKS_CERT", "\"${googleBooksCert}\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -2,6 +2,7 @@ package com.reader.oghma.api;
 
 import android.util.Log;
 
+import com.reader.oghma.BuildConfig;
 import com.reader.oghma.api.model.GoogleBookItem;
 import com.reader.oghma.api.model.GoogleBooksResponse;
 
@@ -14,7 +15,12 @@ public class GoogleBooksTest {
     public static void testSearch() {
 
         GoogleBooksClient.getApi()
-                .searchBooks("Harry Potter")
+                .searchBooks(
+                        "Harry Potter",
+                        BuildConfig.GOOGLE_BOOKS_API_KEY,
+                        BuildConfig.APPLICATION_ID,
+                        BuildConfig.GOOGLE_BOOKS_CERT
+                )
                 .enqueue(new Callback<GoogleBooksResponse>() {
 
                     @Override
