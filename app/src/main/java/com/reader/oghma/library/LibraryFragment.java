@@ -2021,13 +2021,24 @@ public class LibraryFragment extends Fragment {
                             if (previewText.contains("<!DOCTYPE html>") || previewText.contains("<html>")) {
                                 Log.e("GoogleBooksDownload", "The server returned an HTML page instead of an EPUB.");
 
-                                if ("Alice's Adventures in Wonderland".equalsIgnoreCase(finalTitle) && !finalDownloadUrl.contains("gutenberg.org")) {
+                                String fallbackUrl = null;
+                                if (!finalDownloadUrl.contains("gutenberg.org")) {
+                                    if ("Alice's Adventures in Wonderland".equalsIgnoreCase(finalTitle)) {
+                                        fallbackUrl = "https://www.gutenberg.org/cache/epub/11/pg11-images.epub";
+                                    } else if ("The War of the Worlds".equalsIgnoreCase(finalTitle) && finalAuthor.toLowerCase().contains("wells")) {
+                                        fallbackUrl = "https://www.gutenberg.org/cache/epub/36/pg36-images.epub";
+                                    } else if ("The Picture of Dorian Gray".equalsIgnoreCase(finalTitle) && finalAuthor.toLowerCase().contains("wilde")) {
+                                        fallbackUrl = "https://www.gutenberg.org/cache/epub/26740/pg26740-images.epub";
+                                    }
+                                }
+
+                                if (fallbackUrl != null) {
                                     Toast.makeText(requireContext(),
                                             "Google Books download unavailable. Downloading public-domain EPUB...",
                                             Toast.LENGTH_LONG).show();
 
                                     downloadGoogleBookFromUrl(
-                                            "https://www.gutenberg.org/cache/epub/11/pg11-images.epub",
+                                            fallbackUrl,
                                             fileName,
                                             finalFormat,
                                             finalTitle,
