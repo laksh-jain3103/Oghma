@@ -5,11 +5,13 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.text.InputType;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -26,9 +28,13 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import androidx.activity.OnBackPressedCallback;
+import com.reader.oghma.BuildConfig;
 import com.reader.oghma.R;
+import com.reader.oghma.api.GoogleBooksClient;
+import com.reader.oghma.api.model.GoogleBooksResponse;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.reader.ReaderFragment;
+import com.reader.oghma.search.GoogleBooksAdapter;
 
 import java.io.File;
 import java.io.InputStream;
@@ -41,6 +47,10 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.reader.oghma.data.entity.Bookmark;
 import com.reader.oghma.data.repository.BookmarkRepository;
+
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class LibraryFragment extends Fragment {
 
@@ -84,6 +94,18 @@ public class LibraryFragment extends Fragment {
     private BookmarkAdapter bookmarkAdapter;
 
     private BookmarkRepository bookmarkRepository;
+
+    private EditText googleBooksSearchInput;
+
+    private ImageButton googleBooksSearchButton;
+
+    private RecyclerView googleBooksRecyclerView;
+
+    private ProgressBar googleBooksProgress;
+
+    private View googleBooksEmptyText;
+
+    private GoogleBooksAdapter googleBooksAdapter;
 
     // =========================================================
     // View state
@@ -292,6 +314,44 @@ public class LibraryFragment extends Fragment {
                 view.findViewById(
                         R.id.findMorePage
                 );
+
+        googleBooksSearchInput =
+                view.findViewById(
+                        R.id.googleBooksSearchInput
+                );
+
+        googleBooksSearchButton =
+                view.findViewById(
+                        R.id.googleBooksSearchButton
+                );
+
+        googleBooksRecyclerView =
+                view.findViewById(
+                        R.id.googleBooksRecyclerView
+                );
+
+        googleBooksProgress =
+                view.findViewById(
+                        R.id.googleBooksProgress
+                );
+
+        googleBooksEmptyText =
+                view.findViewById(
+                        R.id.googleBooksEmptyText
+                );
+
+        googleBooksAdapter =
+                new GoogleBooksAdapter();
+
+        googleBooksRecyclerView.setLayoutManager(
+                new LinearLayoutManager(
+                        requireContext()
+                )
+        );
+
+        googleBooksRecyclerView.setAdapter(
+                googleBooksAdapter
+        );
 
 
         // -----------------------------------------------------
@@ -1368,6 +1428,34 @@ public class LibraryFragment extends Fragment {
                     return false;
                 }
         );
+
+        // -----------------------------------------------------
+        // Google Books Search
+        // -----------------------------------------------------
+
+        googleBooksSearchButton.setOnClickListener(
+                v -> {
+
+                    String query =
+                            googleBooksSearchInput
+                                    .getText()
+                                    .toString()
+                                    .trim();
+
+                    if (query.isEmpty()) {
+
+                        Toast.makeText(
+                                requireContext(),
+                                "Enter a book title or author",
+                                Toast.LENGTH_SHORT
+                        ).show();
+
+                        return;
+                    }
+
+                    searchGoogleBooks(query);
+                }
+        );
     }
 
 
@@ -1512,6 +1600,117 @@ public class LibraryFragment extends Fragment {
         addBookButton.setVisibility(
                 View.GONE
         );
+    }
+
+    private void searchGoogleBooks(String query) {
+
+        googleBooksProgress.setVisibility(
+                View.VISIBLE
+        );
+
+        googleBooksEmptyText.setVisibility(
+                View.GONE
+        );
+
+        GoogleBooksClient.getApi()
+                .searchBooks(
+                        query,
+                        BuildConfig.GOOGLE_BOOKS_API_KEY,
+                        BuildConfig.APPLICATION_ID,
+                        BuildConfig.GOOGLE_BOOKS_CERT
+                )
+                .enqueue(new Callback<GoogleBooksResponse>() {
+
+                    @Override
+                    public void onResponse(
+                            @NonNull Call<GoogleBooksResponse> call,
+                            @NonNull Response<GoogleBooksResponse> response
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        googleBooksProgress.setVisibility(
+                                View.GONE
+                        );
+
+                        if (!response.isSuccessful()
+                                || response.body() == null) {
+
+                            Toast.makeText(
+                                    requireContext(),
+                                    "Google Books search failed",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            googleBooksEmptyText.setVisibility(
+                                    View.VISIBLE
+                            );
+
+                            return;
+                        }
+
+                        List<com.reader.oghma.api.model.GoogleBookItem> items =
+                                response.body().items;
+
+                        googleBooksAdapter.setBooks(items);
+
+                        if (items == null || items.isEmpty()) {
+
+                            googleBooksEmptyText.setVisibility(
+                                    View.VISIBLE
+                            );
+
+                            if (googleBooksEmptyText instanceof android.widget.TextView) {
+                                ((android.widget.TextView) googleBooksEmptyText)
+                                        .setText("No books found");
+                            }
+
+                        } else {
+
+                            googleBooksEmptyText.setVisibility(
+                                    View.GONE
+                            );
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(
+                            @NonNull Call<GoogleBooksResponse> call,
+                            @NonNull Throwable t
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        googleBooksProgress.setVisibility(
+                                View.GONE
+                        );
+
+                        googleBooksEmptyText.setVisibility(
+                                View.VISIBLE
+                        );
+
+                        if (googleBooksEmptyText instanceof android.widget.TextView) {
+                            ((android.widget.TextView) googleBooksEmptyText)
+                                    .setText("Could not connect to Google Books");
+                        }
+
+                        Log.e(
+                                "GoogleBooks",
+                                "Search failed",
+                                t
+                        );
+
+                        Toast.makeText(
+                                requireContext(),
+                                "Could not connect to Google Books",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                    }
+                });
     }
 
 
