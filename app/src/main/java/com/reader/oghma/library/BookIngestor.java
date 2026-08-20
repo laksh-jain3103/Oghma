@@ -182,6 +182,143 @@ public class BookIngestor {
         });
     }
 
+    public void importDownloadedBook(
+            InputStream inputStream,
+            String fileName,
+            String format,
+            String title,
+            String author
+    ) {
+
+        executor.execute(() -> {
+
+            try {
+
+                // -----------------------------
+                // 1. Create books directory
+                // -----------------------------
+
+                File booksDirectory =
+                        new File(
+                                context.getFilesDir(),
+                                "books"
+                        );
+
+                if (!booksDirectory.exists()) {
+                    booksDirectory.mkdirs();
+                }
+
+
+                // -----------------------------
+                // 2. Copy downloaded book
+                // -----------------------------
+
+                File destination =
+                        new File(
+                                booksDirectory,
+                                fileName
+                        );
+
+                copyFile(
+                        inputStream,
+                        destination
+                );
+
+
+                // -----------------------------
+                // 3. Create Book
+                // -----------------------------
+
+                Book book =
+                        new Book();
+
+                book.title =
+                        title != null
+                                && !title.trim().isEmpty()
+                                ? title
+                                : removeExtension(fileName);
+
+                book.author =
+                        author != null
+                                && !author.trim().isEmpty()
+                                ? author
+                                : "Unknown author";
+
+                book.filePath =
+                        destination.getAbsolutePath();
+
+                book.format =
+                        format;
+
+                book.addedAt =
+                        System.currentTimeMillis();
+
+
+                // -----------------------------
+                // 4. Handle cover
+                // -----------------------------
+
+                if (
+                        "epub".equalsIgnoreCase(
+                                format
+                        )
+                ) {
+
+                    extractEpubCover(
+                            destination,
+                            book
+                    );
+
+                } else if (
+                        "pdf".equalsIgnoreCase(
+                                format
+                        )
+                ) {
+
+                    File generatedThumbnail =
+                            generatePdfThumbnail(
+                                    destination
+                            );
+
+                    if (
+                            generatedThumbnail != null
+                                    && generatedThumbnail.exists()
+                    ) {
+
+                        book.coverPath =
+                                generatedThumbnail
+                                        .getAbsolutePath();
+
+                    } else {
+
+                        book.coverPath =
+                                "";
+                    }
+
+                    repository.insertBook(
+                            book
+                    );
+
+                } else {
+
+                    book.coverPath = "";
+
+                    repository.insertBook(
+                            book
+                    );
+                }
+
+            } catch (IOException e) {
+
+                e.printStackTrace();
+
+            } catch (Exception e) {
+
+                e.printStackTrace();
+            }
+        });
+    }
+
     private File generatePdfThumbnail(
             File pdfFile
     ) {
