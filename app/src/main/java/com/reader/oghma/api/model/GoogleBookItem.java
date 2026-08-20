@@ -41,6 +41,44 @@ public class GoogleBookItem {
 
         @SerializedName("webReaderLink")
         public String webReaderLink;
+
+        @SerializedName("explicitOfflineLicenseManagement")
+        public boolean explicitOfflineLicenseManagement;
+
+        @SerializedName("downloadAccess")
+        public DownloadAccess downloadAccess;
+    }
+
+    public static class DownloadAccess {
+        @SerializedName("restricted")
+        public boolean restricted;
+
+        @SerializedName("deviceAllowed")
+        public boolean deviceAllowed;
+
+        @SerializedName("justAcquired")
+        public boolean justAcquired;
+
+        @SerializedName("maxDownloadDevices")
+        public int maxDownloadDevices;
+
+        @SerializedName("downloadsAcquired")
+        public int downloadsAcquired;
+
+        @SerializedName("nonce")
+        public String nonce;
+
+        @SerializedName("source")
+        public String source;
+
+        @SerializedName("reasonCode")
+        public String reasonCode;
+
+        @SerializedName("message")
+        public String message;
+
+        @SerializedName("signature")
+        public String signature;
     }
 
     public static class DownloadInfo {

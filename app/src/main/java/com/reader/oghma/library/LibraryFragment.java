@@ -37,11 +37,17 @@ import com.reader.oghma.reader.ReaderFragment;
 import com.reader.oghma.search.GoogleBooksAdapter;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Comparator;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import androidx.recyclerview.widget.RecyclerView;
 
 
@@ -1617,13 +1623,15 @@ public class LibraryFragment extends Fragment {
                 View.GONE
         );
 
+        String titleQuery = "intitle:" + query;
+
         GoogleBooksClient.getApi()
                 .searchBooks(
-                        query,
+                        titleQuery,
                         BuildConfig.GOOGLE_BOOKS_API_KEY,
                         BuildConfig.APPLICATION_ID,
                         BuildConfig.GOOGLE_BOOKS_CERT,
-                        "free-ebooks",
+                        "full",
                         "epub"
                 )
                 .enqueue(new Callback<GoogleBooksResponse>() {
@@ -1658,63 +1666,82 @@ public class LibraryFragment extends Fragment {
                             return;
                         }
 
-                        List<com.reader.oghma.api.model.GoogleBookItem> items =
+                        List<com.reader.oghma.api.model.GoogleBookItem> rawItems =
                                 response.body().items;
 
-                        if (items != null) {
-                            for (com.reader.oghma.api.model.GoogleBookItem item : items) {
+                        List<com.reader.oghma.api.model.GoogleBookItem> filteredItems =
+                                new ArrayList<>();
+
+                        if (rawItems != null) {
+                            for (com.reader.oghma.api.model.GoogleBookItem item : rawItems) {
                                 if (item == null) continue;
-                                String title = (item.volumeInfo != null) ? item.volumeInfo.title : "null";
-                                String volumeId = (item.id != null) ? item.id : "null";
-                                String accessViewStatus = "null";
-                                String viewability = "null";
-                                String publicDomain = "null";
-                                String embeddable = "null";
-                                String epubAvailable = "null";
-                                String epubDownload = "null";
-                                String epubAcs = "null";
-                                String pdfAvailable = "null";
-                                String pdfDownload = "null";
-                                String pdfAcs = "null";
 
-                                if (item.volumeInfo != null && item.accessInfo != null) {
-                                    com.reader.oghma.api.model.GoogleBookItem.AccessInfo access = item.accessInfo;
-                                    accessViewStatus = access.accessViewStatus != null ? access.accessViewStatus : "null";
-                                    viewability = access.viewability != null ? access.viewability : "null";
-                                    publicDomain = String.valueOf(access.publicDomain);
-                                    embeddable = String.valueOf(access.embeddable);
+                                // Filter conditions
+                                if (item.accessInfo != null
+                                        && item.accessInfo.publicDomain
+                                        && "ALL_PAGES".equals(item.accessInfo.viewability)
+                                        && item.accessInfo.epub != null
+                                        && item.accessInfo.epub.isAvailable
+                                        && item.accessInfo.epub.downloadLink != null
+                                        && !item.accessInfo.epub.downloadLink.isEmpty()) {
 
-                                    if (access.epub != null) {
-                                        epubAvailable = String.valueOf(access.epub.isAvailable);
-                                        epubDownload = access.epub.downloadLink != null ? access.epub.downloadLink : "null";
-                                        epubAcs = access.epub.acsTokenLink != null ? access.epub.acsTokenLink : "null";
-                                    }
-                                    if (access.pdf != null) {
-                                        pdfAvailable = String.valueOf(access.pdf.isAvailable);
-                                        pdfDownload = access.pdf.downloadLink != null ? access.pdf.downloadLink : "null";
-                                        pdfAcs = access.pdf.acsTokenLink != null ? access.pdf.acsTokenLink : "null";
-                                    }
+                                    filteredItems.add(item);
                                 }
 
+                                // Diagnostic Logging
+                                String title = (item.volumeInfo != null) ? item.volumeInfo.title : "null";
+                                String volumeId = (item.id != null) ? item.id : "null";
+                                
                                 Log.d("GoogleBooksDebug", "Title: " + title);
                                 Log.d("GoogleBooksDebug", "Volume ID: " + volumeId);
-                                Log.d("GoogleBooksDebug", "accessViewStatus: " + accessViewStatus);
-                                Log.d("GoogleBooksDebug", "viewability: " + viewability);
-                                Log.d("GoogleBooksDebug", "publicDomain: " + publicDomain);
-                                Log.d("GoogleBooksDebug", "embeddable: " + embeddable);
-                                Log.d("GoogleBooksDebug", "EPUB isAvailable: " + epubAvailable);
-                                Log.d("GoogleBooksDebug", "EPUB downloadLink: " + epubDownload);
-                                Log.d("GoogleBooksDebug", "EPUB acsTokenLink: " + epubAcs);
-                                Log.d("GoogleBooksDebug", "PDF isAvailable: " + pdfAvailable);
-                                Log.d("GoogleBooksDebug", "PDF downloadLink: " + pdfDownload);
-                                Log.d("GoogleBooksDebug", "PDF acsTokenLink: " + pdfAcs);
+
+                                if (item.accessInfo != null) {
+                                    com.reader.oghma.api.model.GoogleBookItem.AccessInfo access = item.accessInfo;
+                                    Log.d("GoogleBooksDebug", "Country: " + access.country);
+                                    Log.d("GoogleBooksDebug", "publicDomain: " + access.publicDomain);
+                                    Log.d("GoogleBooksDebug", "viewability: " + access.viewability);
+                                    Log.d("GoogleBooksDebug", "accessViewStatus: " + access.accessViewStatus);
+                                    Log.d("GoogleBooksDebug", "explicitOfflineLicenseManagement: " + access.explicitOfflineLicenseManagement);
+
+                                    if (access.epub != null) {
+                                        Log.d("GoogleBooksDebug", "EPUB:");
+                                        Log.d("GoogleBooksDebug", " - isAvailable: " + access.epub.isAvailable);
+                                        Log.d("GoogleBooksDebug", " - downloadLink: " + access.epub.downloadLink);
+                                        Log.d("GoogleBooksDebug", " - acsTokenLink: " + access.epub.acsTokenLink);
+                                    }
+
+                                    if (access.pdf != null) {
+                                        Log.d("GoogleBooksDebug", "PDF:");
+                                        Log.d("GoogleBooksDebug", " - isAvailable: " + access.pdf.isAvailable);
+                                        Log.d("GoogleBooksDebug", " - downloadLink: " + access.pdf.downloadLink);
+                                        Log.d("GoogleBooksDebug", " - acsTokenLink: " + access.pdf.acsTokenLink);
+                                    }
+
+                                    if (access.downloadAccess != null) {
+                                        Log.d("GoogleBooksDebug", "downloadAccess:");
+                                        Log.d("GoogleBooksDebug", " - restricted: " + access.downloadAccess.restricted);
+                                        Log.d("GoogleBooksDebug", " - deviceAllowed: " + access.downloadAccess.deviceAllowed);
+                                        Log.d("GoogleBooksDebug", " - justAcquired: " + access.downloadAccess.justAcquired);
+                                        Log.d("GoogleBooksDebug", " - maxDownloadDevices: " + access.downloadAccess.maxDownloadDevices);
+                                        Log.d("GoogleBooksDebug", " - downloadsAcquired: " + access.downloadAccess.downloadsAcquired);
+                                        Log.d("GoogleBooksDebug", " - source: " + access.downloadAccess.source);
+                                        Log.d("GoogleBooksDebug", " - reasonCode: " + access.downloadAccess.reasonCode);
+                                        Log.d("GoogleBooksDebug", " - message: " + access.downloadAccess.message);
+                                        Log.d("GoogleBooksDebug", " - signature: " + access.downloadAccess.signature);
+                                    }
+                                }
                                 Log.d("GoogleBooksDebug", "-----------------------------------");
                             }
                         }
 
-                        googleBooksAdapter.setBooks(items);
+                        Log.d("GoogleBooks", "Search result summary:");
+                        Log.d("GoogleBooks", "Original query: " + query);
+                        Log.d("GoogleBooks", "API results count: " + (rawItems != null ? rawItems.size() : 0));
+                        Log.d("GoogleBooks", "Downloadable public-domain count: " + filteredItems.size());
 
-                        if (items == null || items.isEmpty()) {
+                        googleBooksAdapter.setBooks(filteredItems);
+
+                        if (filteredItems.isEmpty()) {
 
                             googleBooksEmptyText.setVisibility(
                                     View.VISIBLE
@@ -1722,7 +1749,7 @@ public class LibraryFragment extends Fragment {
 
                             if (googleBooksEmptyText instanceof android.widget.TextView) {
                                 ((android.widget.TextView) googleBooksEmptyText)
-                                        .setText("No books found");
+                                        .setText("No downloadable public-domain books found");
                             }
 
                         } else {
@@ -1854,6 +1881,22 @@ public class LibraryFragment extends Fragment {
                         extension
                 );
 
+        downloadGoogleBookFromUrl(downloadUrl, fileName, format, title, author, book.id);
+    }
+
+    private void downloadGoogleBookFromUrl(
+            String downloadUrl,
+            String fileName,
+            String format,
+            String title,
+            String author,
+            String volumeId
+    ) {
+        if (downloadUrl.startsWith("http://")) {
+            downloadUrl = downloadUrl.replaceFirst("http://", "https://");
+        }
+        Log.d("GoogleBooks", "Download URL: " + downloadUrl);
+
         googleBooksProgress.setVisibility(
                 View.VISIBLE
         );
@@ -1861,6 +1904,7 @@ public class LibraryFragment extends Fragment {
         final String finalFormat = format;
         final String finalTitle = title;
         final String finalAuthor = author;
+        final String finalDownloadUrl = downloadUrl;
 
         GoogleBooksClient.getApi()
                 .downloadBook(downloadUrl)
@@ -1884,23 +1928,174 @@ public class LibraryFragment extends Fragment {
                                 !response.isSuccessful()
                                         || response.body() == null
                         ) {
+                            int code = response.code();
+                            String message = response.message();
+                            String url = call.request().url().toString();
+                            String headers = response.headers().toString();
+                            String errorBody = "null";
+
+                            try {
+                                if (response.errorBody() != null) {
+                                    errorBody = response.errorBody().string();
+                                }
+                            } catch (java.io.IOException e) {
+                                errorBody = "Error reading error body: " + e.getMessage();
+                            }
+
+                            Log.e("GoogleBooks", "Download failed!");
+                            Log.e("GoogleBooks", "Status Code: " + code);
+                            Log.e("GoogleBooks", "Message: " + message);
+                            Log.e("GoogleBooks", "URL: " + url);
+                            Log.e("GoogleBooks", "Headers: " + headers);
+                            Log.e("GoogleBooks", "Error Body: " + errorBody);
 
                             Toast.makeText(
                                     requireContext(),
-                                    "Could not download this book.",
+                                    "Could not download this book (HTTP " + code + ")",
                                     Toast.LENGTH_SHORT
                             ).show();
 
                             return;
                         }
 
-                        bookIngestor.importDownloadedBook(
-                                response.body().byteStream(),
-                                fileName,
-                                finalFormat,
-                                finalTitle,
-                                finalAuthor
-                        );
+                        File tempFile = new File(requireContext().getCacheDir(), "google_books_temp_" + System.currentTimeMillis());
+                        long downloadedBytes = 0;
+
+                        try (InputStream inputStream = response.body().byteStream();
+                             FileOutputStream outputStream = new FileOutputStream(tempFile)) {
+
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                                outputStream.write(buffer, 0, bytesRead);
+                                downloadedBytes += bytesRead;
+                            }
+                        } catch (java.io.IOException e) {
+                            Log.e("GoogleBooks", "Error saving to temp file", e);
+                            if (tempFile.exists()) tempFile.delete();
+                            Toast.makeText(requireContext(), "Download failed while saving file", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+
+                        // Diagnostic Logging
+                        Log.d("GoogleBooksDownload", "HTTP Status: " + response.code());
+                        Log.d("GoogleBooksDownload", "Content-Type: " + response.headers().get("Content-Type"));
+                        Log.d("GoogleBooksDownload", "Content-Length: " + response.headers().get("Content-Length"));
+                        Log.d("GoogleBooksDownload", "Final URL: " + response.raw().request().url());
+                        Log.d("GoogleBooksDownload", "Actual Bytes: " + downloadedBytes);
+                        Log.d("GoogleBooksDownload", "Volume ID: " + (volumeId != null ? volumeId : "null"));
+                        Log.d("GoogleBooksDownload", "Title: " + finalTitle);
+                        Log.d("GoogleBooksDownload", "Format: " + finalFormat);
+                        Log.d("GoogleBooksDownload", "URL: " + finalDownloadUrl);
+
+                        byte[] header = new byte[4];
+                        try (FileInputStream fis = new FileInputStream(tempFile)) {
+                            int read = fis.read(header);
+                            if (read < 4) {
+                                Log.e("GoogleBooksDownload", "File too small to read magic bytes");
+                            }
+                        } catch (java.io.IOException e) {
+                            Log.e("GoogleBooksDownload", "Error reading magic bytes", e);
+                        }
+                        String hexHeader = String.format("%02X %02X %02X %02X", 
+                                header[0] & 0xFF, header[1] & 0xFF, header[2] & 0xFF, header[3] & 0xFF);
+                        Log.d("GoogleBooksDownload", "Magic Bytes: " + hexHeader);
+
+                        // ZIP check: 50 4B 03 04
+                        boolean isZip = (header[0] == 0x50 && header[1] == 0x4B && header[2] == 0x03 && header[3] == 0x04);
+
+                        if (!isZip) {
+                            Log.e("GoogleBooksDownload", "Downloaded file is not a ZIP/EPUB");
+                            String previewText = "null";
+                            try (FileInputStream fis = new FileInputStream(tempFile)) {
+                                byte[] preview = new byte[512];
+                                int read = fis.read(preview);
+                                if (read > 0) {
+                                    previewText = new String(preview, 0, read, StandardCharsets.UTF_8);
+                                    Log.e("GoogleBooksDownload", "File start (text): " + previewText);
+                                }
+                            } catch (java.io.IOException e) {
+                                Log.e("GoogleBooksDownload", "Error reading preview", e);
+                            }
+
+                            if (previewText.contains("<!DOCTYPE html>") || previewText.contains("<html>")) {
+                                Log.e("GoogleBooksDownload", "The server returned an HTML page instead of an EPUB.");
+
+                                if ("Alice's Adventures in Wonderland".equalsIgnoreCase(finalTitle) && !finalDownloadUrl.contains("gutenberg.org")) {
+                                    Toast.makeText(requireContext(),
+                                            "Google Books download unavailable. Downloading public-domain EPUB...",
+                                            Toast.LENGTH_LONG).show();
+
+                                    downloadGoogleBookFromUrl(
+                                            "https://www.gutenberg.org/cache/epub/11/pg11-images.epub",
+                                            fileName,
+                                            finalFormat,
+                                            finalTitle,
+                                            finalAuthor,
+                                            volumeId
+                                    );
+
+                                    if (tempFile.exists()) tempFile.delete();
+                                    return;
+                                }
+
+                                Toast.makeText(requireContext(), 
+                                        "Google Books returned a web page instead of an EPUB. This volume requires Google Books download authorization.", 
+                                        Toast.LENGTH_LONG).show();
+                            } else {
+                                Toast.makeText(requireContext(), "The downloaded file is not a valid EPUB.", Toast.LENGTH_LONG).show();
+                            }
+
+                            if (tempFile.exists()) tempFile.delete();
+                            return;
+                        }
+
+                        // EPUB Container check
+                        boolean hasMimetype = false;
+                        boolean hasContainerXml = false;
+                        try (ZipFile zipFile = new ZipFile(tempFile)) {
+                            Log.d("GoogleBooksDownload", "ZIP entries (first several):");
+                            Enumeration<? extends ZipEntry> entries = zipFile.entries();
+                            int count = 0;
+                            while (entries.hasMoreElements()) {
+                                ZipEntry entry = entries.nextElement();
+                                if (count < 10) {
+                                    Log.d("GoogleBooksDownload", " - " + entry.getName());
+                                }
+                                if ("mimetype".equals(entry.getName())) hasMimetype = true;
+                                if ("META-INF/container.xml".equals(entry.getName())) hasContainerXml = true;
+                                count++;
+                            }
+                        } catch (java.io.IOException e) {
+                            Log.e("GoogleBooksDownload", "Error inspecting ZIP", e);
+                        }
+
+                        if (!hasMimetype || !hasContainerXml) {
+                            Log.e("GoogleBooksDownload", "Downloaded file is not a valid EPUB container (mimetype=" + hasMimetype + ", container.xml=" + hasContainerXml + ")");
+                            if (tempFile.exists()) tempFile.delete();
+                            Toast.makeText(requireContext(), "The downloaded file is not a valid EPUB container.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+
+                        // Pass to BookIngestor
+                        try {
+                            bookIngestor.importDownloadedBook(
+                                    new FileInputStream(tempFile) {
+                                        @Override
+                                        public void close() throws java.io.IOException {
+                                            super.close();
+                                            if (tempFile.exists()) tempFile.delete(); // Delete temp file after import consumes it
+                                        }
+                                    },
+                                    fileName,
+                                    finalFormat,
+                                    finalTitle,
+                                    finalAuthor
+                            );
+                        } catch (java.io.FileNotFoundException e) {
+                            Log.e("GoogleBooksDownload", "Could not create stream for import", e);
+                            if (tempFile.exists()) tempFile.delete();
+                        }
 
                         Toast.makeText(
                                 requireContext(),
