@@ -58,7 +58,7 @@
     <!-- Reader container -->
     <!-- ===================================================== -->
 
-    <FrameLayout
+    <com.reader.oghma.reader.PinchZoomLayout
         android:id="@+id/readerContainer"
         android:layout_width="0dp"
         android:layout_height="0dp"
@@ -81,6 +81,6 @@
             android:textIsSelectable="true"
             android:textSize="17sp" />
 
-    </FrameLayout>
+    </com.reader.oghma.reader.PinchZoomLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

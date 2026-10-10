@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=4, user-scalable=yes">
+<title>Oghma PDF</title>
+<link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+<div id="status">Loading PDF…</div>
+
+<!-- Page view: the PDF exactly as printed (canvas + invisible text layer) -->
+<div id="pages"></div>
+
+<!-- Text view: the PDF's text re-flowed as real, resizable text -->
+<div id="reflow"></div>
+
+<div id="pageInd" class="hidden"></div>
+
+<div id="tools">
+    <button id="modeBtn" type="button">Page view</button>
+    <button id="fsMinus" type="button" aria-label="Smaller text">A&minus;</button>
+    <button id="fsPlus" type="button" aria-label="Larger text">A+</button>
+</div>
+
+<div id="notice" class="hidden"></div>
+
+<div id="bar" class="hidden">
+    <div id="dots"></div>
+    <button id="noteBtn" type="button">Note</button>
+    <button id="copyBtn" type="button">Copy</button>
+</div>
+
+<script src="lib/pdf.min.js"></script>
+<script src="viewer.js"></script>
+</body>
+</html>

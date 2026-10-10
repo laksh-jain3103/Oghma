@@ -1,6 +1,11 @@
 package com.reader.oghma.reader;
 
 import android.os.Bundle;
+import android.widget.LinearLayout;
+import android.view.Gravity;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -18,9 +23,15 @@ import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.repository.BookRepository;
 import com.reader.oghma.data.repository.BookmarkRepository;
+import com.reader.oghma.data.repository.ProgressRepository;
 import com.reader.oghma.data.entity.Bookmark;
+import com.reader.oghma.data.entity.Progress;
 import org.readium.r2.navigator.epub.EpubNavigatorFragment;
 
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -37,9 +48,29 @@ public class ReaderFragment extends Fragment {
     private BookmarkRepository bookmarkRepository;
     private EpubReaderBridge epubReaderBridge;
 
-    private PdfReaderBridge pdfReaderBridge;
+    private ProgressRepository progressRepository;
+
+    private PdfReaderView pdfReaderView;
 
     private EpubNavigatorFragment epubNavigator;
+
+    // EPUB text scale, 1.0 = 100%. Remembered between books and sessions.
+    private double epubFontSize = 1.0;
+
+    private TextView epubZoomLabel;
+
+    // Reading progress is written at most once per second.
+    private final Handler progressHandler =
+            new Handler(Looper.getMainLooper());
+
+    private final Runnable progressSaver =
+            this::flushProgress;
+
+    private String pendingProgressLocator;
+
+    private float pendingProgressPercentage;
+
+    private boolean hasPendingProgress = false;
 
     private int currentBookId = -1;
 
@@ -108,9 +139,10 @@ public class ReaderFragment extends Fragment {
                         requireContext()
                 );
 
-        pdfReaderBridge =
-                new PdfReaderBridge(
-                        requireContext()
+        progressRepository =
+                new ProgressRepository(
+                        requireActivity()
+                                .getApplication()
                 );
 
         repository =
@@ -305,6 +337,10 @@ public class ReaderFragment extends Fragment {
     }
 
 
+    // =========================================================
+    // EPUB
+    // =========================================================
+
     private void displayEpubBook(
             Book book
     ) {
@@ -330,14 +366,56 @@ public class ReaderFragment extends Fragment {
         );
 
 
+        // Where to open: the tapped highlight wins, otherwise the last reading position.
+        progressRepository.get(
+                currentBookId,
+                progress -> {
+
+                    String initialLocator =
+                            bookmarkLocator != null
+                                    ? bookmarkLocator
+                                    : (progress != null
+                                    ? progress.locator
+                                    : null);
+
+                    runOnUi(() ->
+                            openEpub(
+                                    epubFile,
+                                    initialLocator
+                            )
+                    );
+                }
+        );
+    }
+
+
+    private void openEpub(
+            File epubFile,
+            String initialLocatorJson
+    ) {
+
+        epubFontSize =
+                ReaderPrefs.getEpubFontSize(
+                        requireContext()
+                );
+
         epubReaderBridge.openEpub(
                 epubFile,
+                initialLocatorJson,
+                epubFontSize,
                 new EpubReaderBridge.Callback() {
 
                     @Override
                     public void onBookmarkRequested() {
 
                         handleBookmarkRequest();
+                    }
+
+
+                    @Override
+                    public void onCopyRequested() {
+
+                        handleCopyRequest();
                     }
 
 
@@ -378,6 +456,28 @@ public class ReaderFragment extends Fragment {
                                                 .findFragmentByTag(
                                                         "epub_navigator"
                                                 );
+
+
+                        readerText.setVisibility(
+                                View.GONE
+                        );
+
+
+                        if (epubNavigator != null) {
+
+                            epubReaderBridge.observeProgress(
+                                    epubNavigator,
+                                    (locatorJson, percentage) ->
+                                            scheduleProgressSave(
+                                                    locatorJson,
+                                                    percentage
+                                            )
+                            );
+
+                            refreshEpubHighlights();
+
+                            setupEpubZoom();
+                        }
                     }
 
 
@@ -391,6 +491,10 @@ public class ReaderFragment extends Fragment {
                         }
 
 
+                        readerText.setVisibility(
+                                View.VISIBLE
+                        );
+
                         readerText.setText(
                                 "Could not open EPUB:\n\n"
                                         + message
@@ -401,6 +505,265 @@ public class ReaderFragment extends Fragment {
     }
 
 
+    // =========================================================
+    // EPUB text size (A- / A+ buttons and pinch)
+    // =========================================================
+
+    private void setupEpubZoom() {
+
+        if (!(readerContainer instanceof PinchZoomLayout)) {
+            return;
+        }
+
+        PinchZoomLayout pinchLayout =
+                (PinchZoomLayout) readerContainer;
+
+        // Small pill in the bottom corner: A-  100%  A+
+        LinearLayout bar =
+                new LinearLayout(
+                        requireContext()
+                );
+
+        bar.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
+
+        bar.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+
+        GradientDrawable background =
+                new GradientDrawable();
+
+        background.setColor(0xE6313244);
+
+        background.setCornerRadius(dp(24));
+
+        bar.setBackground(background);
+
+        bar.setPadding(
+                dp(4),
+                dp(2),
+                dp(4),
+                dp(2)
+        );
+
+        bar.setElevation(dp(6));
+
+        TextView minus =
+                zoomButton("A\u2212");
+
+        TextView plus =
+                zoomButton("A+");
+
+        epubZoomLabel =
+                new TextView(
+                        requireContext()
+                );
+
+        epubZoomLabel.setTextColor(0xFFCDD6F4);
+
+        epubZoomLabel.setTextSize(13);
+
+        epubZoomLabel.setGravity(Gravity.CENTER);
+
+        epubZoomLabel.setMinWidth(dp(48));
+
+        updateEpubZoomLabel(epubFontSize);
+
+        minus.setOnClickListener(v ->
+                applyEpubFontSize(epubFontSize - 0.1)
+        );
+
+        plus.setOnClickListener(v ->
+                applyEpubFontSize(epubFontSize + 0.1)
+        );
+
+        // Tap the percentage to go back to 100%.
+        epubZoomLabel.setOnClickListener(v ->
+                applyEpubFontSize(1.0)
+        );
+
+        bar.addView(minus);
+        bar.addView(epubZoomLabel);
+        bar.addView(plus);
+
+        FrameLayout.LayoutParams params =
+                new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        Gravity.BOTTOM | Gravity.END
+                );
+
+        params.setMargins(
+                0,
+                0,
+                dp(16),
+                dp(16)
+        );
+
+        readerContainer.addView(
+                bar,
+                params
+        );
+
+        // Pinch: preview the percentage while pinching, resize when the fingers lift.
+        pinchLayout.setListener(
+                new PinchZoomLayout.Listener() {
+
+                    @Override
+                    public void onScale(
+                            float factor
+                    ) {
+
+                        updateEpubZoomLabel(
+                                clampFontSize(
+                                        epubFontSize * factor
+                                )
+                        );
+                    }
+
+                    @Override
+                    public void onScaleEnd(
+                            float factor
+                    ) {
+
+                        applyEpubFontSize(
+                                epubFontSize * factor
+                        );
+                    }
+                }
+        );
+    }
+
+
+    private TextView zoomButton(
+            String label
+    ) {
+
+        TextView button =
+                new TextView(
+                        requireContext()
+                );
+
+        button.setText(label);
+
+        button.setTextColor(0xFFCBA6F7);
+
+        button.setTextSize(17);
+
+        button.setTypeface(
+                button.getTypeface(),
+                android.graphics.Typeface.BOLD
+        );
+
+        button.setGravity(Gravity.CENTER);
+
+        button.setMinWidth(dp(48));
+
+        button.setMinHeight(dp(44));
+
+        button.setContentDescription(
+                label.startsWith("A+")
+                        ? "Larger text"
+                        : "Smaller text"
+        );
+
+        return button;
+    }
+
+
+    private double clampFontSize(
+            double size
+    ) {
+
+        // Steps of 5%.
+        double snapped =
+                Math.round(size * 20.0) / 20.0;
+
+        return Math.max(
+                ReaderPrefs.MIN_FONT_SIZE,
+                Math.min(
+                        ReaderPrefs.MAX_FONT_SIZE,
+                        snapped
+                )
+        );
+    }
+
+
+    private void applyEpubFontSize(
+            double requested
+    ) {
+
+        double size =
+                clampFontSize(
+                        requested
+                );
+
+        updateEpubZoomLabel(size);
+
+        if (epubNavigator == null || size == epubFontSize) {
+            return;
+        }
+
+        epubFontSize = size;
+
+        ReaderPrefs.setEpubFontSize(
+                requireContext(),
+                size
+        );
+
+        epubReaderBridge.setFontSize(
+                epubNavigator,
+                size
+        );
+    }
+
+
+    private void updateEpubZoomLabel(
+            double size
+    ) {
+
+        if (epubZoomLabel != null) {
+
+            epubZoomLabel.setText(
+                    Math.round(size * 100) + "%"
+            );
+        }
+    }
+
+
+    private int dp(
+            int value
+    ) {
+
+        return Math.round(
+                value * getResources().getDisplayMetrics().density
+        );
+    }
+
+
+    /** Loads this book's saved highlights and draws them in the EPUB. */
+    private void refreshEpubHighlights() {
+
+        bookmarkRepository.getBookmarksForBook(
+                currentBookId,
+                bookmarks ->
+                        runOnUi(() -> {
+
+                            if (epubNavigator != null) {
+
+                                epubReaderBridge.applyHighlights(
+                                        epubNavigator,
+                                        bookmarks
+                                );
+                            }
+                        })
+        );
+    }
+
+
+    /** "Highlight" from the EPUB selection menu: ask for colour + note, then save. */
     private void handleBookmarkRequest() {
 
         if (epubNavigator == null) {
@@ -425,6 +788,10 @@ public class ReaderFragment extends Fragment {
                             String chapterTitle
                     ) {
 
+                        if (!isAdded()) {
+                            return;
+                        }
+
                         if (
                                 selectedText == null
                                         || selectedText.trim().isEmpty()
@@ -446,46 +813,184 @@ public class ReaderFragment extends Fragment {
 
                             Toast.makeText(
                                     requireContext(),
-                                    "Could not save the bookmark location.",
+                                    "Could not save the highlight location.",
                                     Toast.LENGTH_SHORT
                             ).show();
 
                             return;
                         }
 
-                        Bookmark bookmark =
-                                new Bookmark();
-
-                        bookmark.bookId =
-                                currentBookId;
-
-                        bookmark.selectedText =
-                                selectedText;
-
-                        bookmark.locatorJson =
-                                locatorJson;
-
-                        bookmark.chapterTitle =
-                                chapterTitle != null
-                                        ? chapterTitle
-                                        : "";
-
-                        bookmark.createdAt =
-                                System.currentTimeMillis();
-
-                        bookmarkRepository.insertBookmark(
-                                bookmark
-                        );
-
-                        Toast.makeText(
+                        HighlightDialog.show(
                                 requireContext(),
-                                "Bookmark saved.",
-                                Toast.LENGTH_SHORT
-                        ).show();
+                                selectedText,
+                                HighlightColors.getLast(
+                                        requireContext()
+                                ),
+                                null,
+                                false,
+                                new HighlightDialog.Listener() {
+
+                                    @Override
+                                    public void onSave(
+                                            int color,
+                                            String note
+                                    ) {
+
+                                        saveHighlight(
+                                                selectedText,
+                                                locatorJson,
+                                                chapterTitle != null
+                                                        ? chapterTitle
+                                                        : "",
+                                                color,
+                                                note
+                                        );
+
+                                        clearEpubSelection();
+
+                                        refreshEpubHighlights();
+                                    }
+
+                                    @Override
+                                    public void onCopy() {
+
+                                        HighlightDialog.copyToClipboard(
+                                                requireContext(),
+                                                selectedText
+                                        );
+
+                                        clearEpubSelection();
+                                    }
+
+                                    @Override
+                                    public void onCancel() {
+
+                                        clearEpubSelection();
+                                    }
+                                }
+                        );
                     }
                 }
         );
     }
+
+
+    /** "Copy" from the EPUB selection menu. */
+    private void handleCopyRequest() {
+
+        if (epubNavigator == null) {
+            return;
+        }
+
+        epubReaderBridge.getCurrentSelection(
+                epubNavigator,
+                new EpubReaderBridge.SelectionCallback() {
+
+                    @Override
+                    public void onSelection(
+                            String selectedText,
+                            String locatorJson,
+                            String chapterTitle
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        if (
+                                selectedText == null
+                                        || selectedText.trim().isEmpty()
+                        ) {
+
+                            Toast.makeText(
+                                    requireContext(),
+                                    "No text selected.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            return;
+                        }
+
+                        HighlightDialog.copyToClipboard(
+                                requireContext(),
+                                selectedText
+                        );
+
+                        clearEpubSelection();
+                    }
+                }
+        );
+    }
+
+
+    private void clearEpubSelection() {
+
+        if (epubNavigator != null) {
+
+            epubReaderBridge.clearSelection(
+                    epubNavigator
+            );
+        }
+    }
+
+
+    /** Saves a highlight (EPUB or PDF) with its colour and optional note. */
+    private void saveHighlight(
+            String selectedText,
+            String locatorJson,
+            String chapterTitle,
+            int color,
+            String note
+    ) {
+
+        Bookmark bookmark =
+                new Bookmark();
+
+        bookmark.bookId =
+                currentBookId;
+
+        bookmark.selectedText =
+                selectedText;
+
+        bookmark.locatorJson =
+                locatorJson;
+
+        bookmark.chapterTitle =
+                chapterTitle;
+
+        bookmark.createdAt =
+                System.currentTimeMillis();
+
+        bookmark.color =
+                color;
+
+        bookmark.note =
+                note != null && !note.trim().isEmpty()
+                        ? note.trim()
+                        : null;
+
+        bookmarkRepository.insertBookmark(
+                bookmark
+        );
+
+        HighlightColors.setLast(
+                requireContext(),
+                color
+        );
+
+        Toast.makeText(
+                requireContext(),
+                bookmark.note != null
+                        ? "Note saved."
+                        : "Highlight saved.",
+                Toast.LENGTH_SHORT
+        ).show();
+    }
+
+
+    // =========================================================
+    // PDF (PDF.js in a WebView, so the text is selectable)
+    // =========================================================
 
     private void displayPdfBook(
             Book book
@@ -509,38 +1014,219 @@ public class ReaderFragment extends Fragment {
                 "PDF reader is being loaded..."
         );
 
-        pdfReaderBridge.openPdf(
+        progressRepository.get(
+                currentBookId,
+                progress ->
+                        bookmarkRepository.getBookmarksForBook(
+                                currentBookId,
+                                bookmarks ->
+                                        runOnUi(() ->
+                                                openPdf(
+                                                        pdfFile,
+                                                        progress,
+                                                        bookmarks
+                                                )
+                                        )
+                        )
+        );
+    }
+
+
+    private void openPdf(
+            File pdfFile,
+            Progress progress,
+            List<Bookmark> bookmarks
+    ) {
+
+        // Start position: tapped highlight, else last reading position, else page 1.
+        JSONObject start =
+                parsePdfLocator(bookmarkLocator);
+
+        if (start == null && progress != null) {
+
+            start =
+                    parsePdfLocator(progress.locator);
+        }
+
+        int startPage =
+                start != null
+                        ? start.optInt("page", 1)
+                        : 1;
+
+        float startFraction =
+                start != null
+                        ? (float) start.optDouble("y", 0.0)
+                        : 0f;
+
+        // Only PDF locators can be drawn by the PDF viewer.
+        List<String> highlights =
+                new ArrayList<>();
+
+        for (Bookmark bookmark : bookmarks) {
+
+            JSONObject locator =
+                    parsePdfLocator(bookmark.locatorJson);
+
+            if (locator != null) {
+
+                try {
+
+                    // The colour lives in its own column, so the viewer gets it alongside.
+                    locator.put(
+                            "color",
+                            HighlightColors.toHex(
+                                    bookmark.color
+                            )
+                    );
+
+                    highlights.add(
+                            locator.toString()
+                    );
+
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        pdfReaderView =
+                new PdfReaderView(
+                        requireContext()
+                );
+
+        readerContainer.addView(
+                pdfReaderView,
+                new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                )
+        );
+
+        pdfReaderView.open(
                 pdfFile,
-                new PdfReaderBridge.Callback() {
+                startPage,
+                startFraction,
+                highlights,
+                new PdfReaderView.Listener() {
 
                     @Override
-                    public void onSuccess(
-                            FragmentFactory factory
+                    public void onReady(
+                            int pageCount
+                    ) {
+
+                        if (isAdded()) {
+
+                            readerText.setVisibility(
+                                    View.GONE
+                            );
+                        }
+                    }
+
+
+                    @Override
+                    public void onProgress(
+                            int page,
+                            float pageFraction,
+                            int pageCount
+                    ) {
+
+                        if (pageCount <= 0) {
+                            return;
+                        }
+
+                        String locator =
+                                "{\"type\":\"pdf\",\"page\":"
+                                        + page
+                                        + ",\"y\":"
+                                        + pageFraction
+                                        + "}";
+
+                        float percentage =
+                                ((page - 1) + pageFraction)
+                                        / pageCount
+                                        * 100f;
+
+                        scheduleProgressSave(
+                                locator,
+                                percentage
+                        );
+                    }
+
+
+                    @Override
+                    public void onHighlight(
+                            String locatorJson,
+                            String text,
+                            int page,
+                            String colorHex,
+                            boolean withNote
                     ) {
 
                         if (!isAdded()) {
                             return;
                         }
 
-                        getChildFragmentManager()
-                                .setFragmentFactory(
-                                        factory
-                                );
+                        // Quick colour dot: the viewer already drew it, just save.
+                        if (!withNote) {
 
-                        getChildFragmentManager()
-                                .beginTransaction()
-                                .replace(
-                                        R.id.readerContainer,
-                                        org.readium.r2.navigator.pdf.PdfNavigatorFragment.class,
-                                        null,
-                                        "pdf_navigator"
-                                )
-                                .commit();
+                            saveHighlight(
+                                    text,
+                                    locatorJson,
+                                    "Page " + page,
+                                    parseColor(colorHex),
+                                    null
+                            );
 
-                        readerText.setVisibility(
-                                View.GONE
+                            return;
+                        }
+
+                        // "Note" button: ask for colour + note first.
+                        HighlightDialog.show(
+                                requireContext(),
+                                text,
+                                HighlightColors.getLast(
+                                        requireContext()
+                                ),
+                                null,
+                                false,
+                                new HighlightDialog.Listener() {
+
+                                    @Override
+                                    public void onSave(
+                                            int color,
+                                            String note
+                                    ) {
+
+                                        saveHighlight(
+                                                text,
+                                                locatorJson,
+                                                "Page " + page,
+                                                color,
+                                                note
+                                        );
+
+                                        if (pdfReaderView != null) {
+
+                                            pdfReaderView.addHighlight(
+                                                    locatorJson,
+                                                    HighlightColors.toHex(
+                                                            color
+                                                    )
+                                            );
+                                        }
+                                    }
+
+                                    @Override
+                                    public void onCopy() {
+
+                                        HighlightDialog.copyToClipboard(
+                                                requireContext(),
+                                                text
+                                        );
+                                    }
+                                }
                         );
                     }
+
 
                     @Override
                     public void onError(
@@ -555,6 +1241,8 @@ public class ReaderFragment extends Fragment {
                                 View.VISIBLE
                         );
 
+                        readerText.bringToFront();
+
                         readerText.setText(
                                 "Could not open PDF:\n\n"
                                         + message
@@ -563,6 +1251,167 @@ public class ReaderFragment extends Fragment {
                 }
         );
     }
+
+
+    private int parseColor(
+            String hex
+    ) {
+
+        try {
+
+            return android.graphics.Color.parseColor(
+                    hex
+            );
+
+        } catch (Exception e) {
+
+            return HighlightColors.YELLOW;
+        }
+    }
+
+
+    /** Returns the parsed locator if [json] is a PDF locator, otherwise null. */
+    private JSONObject parsePdfLocator(
+            String json
+    ) {
+
+        if (json == null || json.trim().isEmpty()) {
+            return null;
+        }
+
+        try {
+
+            JSONObject object =
+                    new JSONObject(json);
+
+            return "pdf".equals(
+                    object.optString("type")
+            )
+                    ? object
+                    : null;
+
+        } catch (Exception e) {
+
+            return null;
+        }
+    }
+
+
+    // =========================================================
+    // Progress + lifecycle
+    // =========================================================
+
+    private void scheduleProgressSave(
+            String locator,
+            float percentage
+    ) {
+
+        pendingProgressLocator =
+                locator;
+
+        pendingProgressPercentage =
+                percentage;
+
+        hasPendingProgress =
+                true;
+
+        progressHandler.removeCallbacks(
+                progressSaver
+        );
+
+        progressHandler.postDelayed(
+                progressSaver,
+                1000
+        );
+    }
+
+
+    private void flushProgress() {
+
+        progressHandler.removeCallbacks(
+                progressSaver
+        );
+
+        if (
+                hasPendingProgress
+                        && currentBookId != -1
+                        && progressRepository != null
+        ) {
+
+            progressRepository.save(
+                    currentBookId,
+                    pendingProgressLocator,
+                    pendingProgressPercentage
+            );
+        }
+
+        hasPendingProgress =
+                false;
+    }
+
+
+    private void runOnUi(
+            Runnable action
+    ) {
+
+        if (!isAdded() || getActivity() == null) {
+            return;
+        }
+
+        getActivity().runOnUiThread(
+                action
+        );
+    }
+
+
+    @Override
+    public void onPause() {
+
+        super.onPause();
+
+        if (pdfReaderView != null) {
+
+            pdfReaderView.onPause();
+        }
+
+        flushProgress();
+    }
+
+
+    @Override
+    public void onResume() {
+
+        super.onResume();
+
+        if (pdfReaderView != null) {
+
+            pdfReaderView.onResume();
+        }
+    }
+
+
+    @Override
+    public void onDestroyView() {
+
+        flushProgress();
+
+        if (pdfReaderView != null) {
+
+            pdfReaderView.destroy();
+
+            pdfReaderView = null;
+        }
+
+        epubNavigator = null;
+
+        if (epubReaderBridge != null) {
+
+            epubReaderBridge.close();
+        }
+
+        super.onDestroyView();
+    }
+
 
     private String readTextFile(
             File file

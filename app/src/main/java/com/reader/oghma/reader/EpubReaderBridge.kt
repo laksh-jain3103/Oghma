@@ -21,7 +21,14 @@ import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.Toast
-import org.readium.adapter.pdfium.document.PdfiumDocumentFactory
+import com.reader.oghma.data.entity.Bookmark
+import kotlinx.coroutines.cancel
+import org.json.JSONObject
+import org.readium.r2.navigator.Decoration
+import org.readium.r2.navigator.epub.EpubPreferences
+import org.readium.r2.shared.ExperimentalReadiumApi
+import org.readium.r2.shared.publication.Locator
+import org.readium.r2.shared.publication.Publication
 
 class EpubReaderBridge(
     context: Context
@@ -34,6 +41,15 @@ class EpubReaderBridge(
         CoroutineScope(
             SupervisorJob() + Dispatchers.IO
         )
+
+    // Used for UI-thread work (selection, decorations, progress). Cancelled in close().
+    private val uiScope =
+        CoroutineScope(
+            SupervisorJob() + Dispatchers.Main
+        )
+
+    // The publication currently shown by the reader. Closed in close().
+    private var openPublication: Publication? = null
 
     private val httpClient =
         DefaultHttpClient()
@@ -53,7 +69,7 @@ class EpubReaderBridge(
                     context = appContext,
                     httpClient = httpClient,
                     assetRetriever = assetRetriever,
-                    pdfFactory = PdfiumDocumentFactory(appContext)
+                    pdfFactory = null
                 )
         )
 
@@ -63,6 +79,15 @@ class EpubReaderBridge(
         fun onError(message: String)
 
         fun onBookmarkRequested()
+
+        fun onCopyRequested()
+    }
+
+    interface ProgressListener {
+        fun onProgress(
+            locatorJson: String,
+            percentage: Float
+        )
     }
 
     interface SelectionCallback {
@@ -85,8 +110,16 @@ class EpubReaderBridge(
     }
 
 
+    /**
+     * @param initialLocatorJson Where to open the book (a saved highlight or the last reading
+     * position). Null opens at the start.
+     * @param initialFontSize Text scale, 1.0 = 100%.
+     */
+    @OptIn(ExperimentalReadiumApi::class)
     fun openEpub(
         file: File,
+        initialLocatorJson: String?,
+        initialFontSize: Double,
         callback: Callback
     ) {
 
@@ -204,6 +237,12 @@ class EpubReaderBridge(
                 }
 
 
+                openPublication?.close()
+                openPublication = publication
+
+                val initialLocator =
+                    parseLocator(initialLocatorJson)
+
                 val navigatorFactory =
                     EpubNavigatorFactory(
                         publication =
@@ -213,7 +252,10 @@ class EpubReaderBridge(
 
                 val fragmentFactory =
                     navigatorFactory.createFragmentFactory(
-                        initialLocator = null,
+                        initialLocator = initialLocator,
+                        initialPreferences = EpubPreferences(
+                            fontSize = initialFontSize
+                        ),
                         configuration =
                             EpubNavigatorFragment.Configuration(
                                 selectionActionModeCallback =
@@ -224,8 +266,14 @@ class EpubReaderBridge(
                                             menu: Menu
                                         ): Boolean {
 
+                                            // Readium replaces the system selection menu with
+                                            // this one, so Copy has to be provided here too.
                                             menu.add(
-                                                "Bookmark"
+                                                MENU_HIGHLIGHT
+                                            )
+
+                                            menu.add(
+                                                MENU_COPY
                                             )
 
                                             return true
@@ -246,16 +294,33 @@ class EpubReaderBridge(
                                             item: MenuItem
                                         ): Boolean {
 
+                                            val title =
+                                                item.title.toString()
+
                                             if (
-                                                item.title
-                                                    .toString()
-                                                    .equals(
-                                                        "Bookmark",
-                                                        ignoreCase = true
-                                                    )
+                                                title.equals(
+                                                    MENU_HIGHLIGHT,
+                                                    ignoreCase = true
+                                                )
                                             ) {
 
                                                 callback.onBookmarkRequested()
+
+                                                mode.finish()
+
+                                                return true
+                                            }
+
+                                            if (
+                                                title.equals(
+                                                    MENU_COPY,
+                                                    ignoreCase = true
+                                                )
+                                            ) {
+
+                                                callback.onCopyRequested()
+
+                                                mode.finish()
 
                                                 return true
                                             }
@@ -299,7 +364,7 @@ class EpubReaderBridge(
         callback: SelectionCallback
     ) {
 
-        CoroutineScope(Dispatchers.Main).launch {
+        uiScope.launch {
 
             try {
 
@@ -352,6 +417,133 @@ class EpubReaderBridge(
                 )
             }
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Progress, highlights, cleanup
+    // ---------------------------------------------------------------------
+
+    /**
+     * Reports the reading position every time it changes. The listener is called on the
+     * main thread; the caller is expected to throttle database writes.
+     */
+    fun observeProgress(
+        navigator: EpubNavigatorFragment,
+        listener: ProgressListener
+    ) {
+
+        uiScope.launch {
+
+            navigator.currentLocator.collect { locator ->
+
+                val percentage =
+                    ((locator.locations.totalProgression ?: 0.0) * 100.0)
+                        .toFloat()
+
+                listener.onProgress(
+                    locator.toJSON().toString(),
+                    percentage
+                )
+            }
+        }
+    }
+
+    /**
+     * Draws every saved highlight of the book. Safe to call again after adding or
+     * removing one: Readium diffs against what is already on screen.
+     */
+    fun applyHighlights(
+        navigator: EpubNavigatorFragment,
+        bookmarks: List<Bookmark>
+    ) {
+
+        uiScope.launch {
+
+            try {
+
+                val decorations =
+                    bookmarks.mapNotNull { bookmark ->
+
+                        val locator =
+                            parseLocator(bookmark.locatorJson)
+                                ?: return@mapNotNull null
+
+                        Decoration(
+                            id = "bookmark-${bookmark.bookmarkId}",
+                            locator = locator,
+                            style = Decoration.Style.Highlight(
+                                tint = HighlightColors.resolve(
+                                    bookmark.color
+                                )
+                            )
+                        )
+                    }
+
+                navigator.applyDecorations(
+                    decorations,
+                    HIGHLIGHT_GROUP
+                )
+
+            } catch (e: Exception) {
+
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /** Changes the text size of the open book (1.0 = 100%). Readium re-flows the pages. */
+    @OptIn(ExperimentalReadiumApi::class)
+    fun setFontSize(
+        navigator: EpubNavigatorFragment,
+        size: Double
+    ) {
+
+        navigator.submitPreferences(
+            EpubPreferences(
+                fontSize = size
+            )
+        )
+    }
+
+    fun clearSelection(
+        navigator: EpubNavigatorFragment
+    ) {
+
+        navigator.clearSelection()
+    }
+
+    /** Returns null for anything that is not a valid Readium locator (e.g. PDF highlights). */
+    private fun parseLocator(
+        json: String?
+    ): Locator? {
+
+        if (json.isNullOrBlank()) {
+            return null
+        }
+
+        return try {
+
+            Locator.fromJSON(JSONObject(json))
+
+        } catch (e: Exception) {
+
+            null
+        }
+    }
+
+    /** Releases the publication and stops every coroutine started by this bridge. */
+    fun close() {
+
+        uiScope.cancel()
+        scope.cancel()
+
+        try {
+            openPublication?.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        openPublication = null
     }
 
     fun extractCover(
@@ -545,5 +737,14 @@ class EpubReaderBridge(
                 }
             }
         }
+    }
+
+    private companion object {
+
+        const val MENU_HIGHLIGHT = "Highlight"
+
+        const val MENU_COPY = "Copy"
+
+        const val HIGHLIGHT_GROUP = "user-highlights"
     }
 }

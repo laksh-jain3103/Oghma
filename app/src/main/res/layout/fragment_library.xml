@@ -71,7 +71,23 @@
 
 
     <!-- ===================================================== -->
-    <!-- Bookmarks page -->
+    <!-- Swipeable pages: Library / Notes / Find More.            -->
+    <!-- The three page views below are moved in here at runtime  -->
+    <!-- (see LibraryFragment.setupPager).                        -->
+    <!-- ===================================================== -->
+
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/libraryPager"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/libraryHeader" />
+
+
+    <!-- ===================================================== -->
+    <!-- Notes page (highlights + notes) -->
     <!-- ===================================================== -->
 
     <FrameLayout
@@ -90,7 +106,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:text="No bookmarks yet"
+            android:text="No notes yet.\nSelect text while reading to highlight it."
+            android:gravity="center"
             android:textColor="@color/text_secondary"
             android:textSize="18sp"
             android:visibility="gone" />
