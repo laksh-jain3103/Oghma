@@ -2,6 +2,7 @@ package com.reader.oghma.reader;
 
 import android.os.Bundle;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.view.Gravity;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
@@ -26,6 +27,7 @@ import com.reader.oghma.data.repository.BookmarkRepository;
 import com.reader.oghma.data.repository.ProgressRepository;
 import com.reader.oghma.data.entity.Bookmark;
 import com.reader.oghma.data.entity.Progress;
+import com.reader.oghma.settings.SettingsFragment;
 import org.readium.r2.navigator.epub.EpubNavigatorFragment;
 
 import org.json.JSONObject;
@@ -42,6 +44,42 @@ public class ReaderFragment extends Fragment {
     private TextView readerText;
     private TextView readerTitle;
     private ImageButton backButton;
+
+    // Read aloud (text-to-speech)
+    private TextView ttsButton;
+
+    private View ttsBar;
+
+    private ImageButton ttsPlayPause;
+
+    private TextView ttsSpeedLabel;
+
+    private EpubTtsController epubTts;
+
+    // Dictionary popup (one at a time)
+    private DictionaryPopup dictionaryPopup;
+
+    private TranslatePopup translatePopup;
+
+    // True while one popup replaces another, so the new word's mark is not wiped.
+    private boolean dictionaryReplacing = false;
+
+    // Book progress bar (follows reading, and the voice while reading aloud)
+    private View progressFooter;
+
+    private SeekBar progressSeek;
+
+    private TextView progressLabel;
+
+    private TextView progressPercent;
+
+    private boolean progressDragging = false;
+
+    private boolean ttsActive = false;
+
+    private boolean ttsPlaying = false;
+
+    private double ttsSpeed = 1.0;
     private FrameLayout readerContainer;
 
     private BookRepository repository;
@@ -126,6 +164,52 @@ public class ReaderFragment extends Fragment {
                 view.findViewById(
                         R.id.backButton
                 );
+
+        ttsButton =
+                view.findViewById(
+                        R.id.ttsButton
+                );
+
+        ttsBar =
+                view.findViewById(
+                        R.id.ttsBar
+                );
+
+        ttsPlayPause =
+                view.findViewById(
+                        R.id.ttsPlayPause
+                );
+
+        ttsSpeedLabel =
+                view.findViewById(
+                        R.id.ttsSpeed
+                );
+
+        progressFooter =
+                view.findViewById(
+                        R.id.progressFooter
+                );
+
+        progressSeek =
+                view.findViewById(
+                        R.id.progressSeek
+                );
+
+        progressLabel =
+                view.findViewById(
+                        R.id.progressLabel
+                );
+
+        progressPercent =
+                view.findViewById(
+                        R.id.progressPercent
+                );
+
+        setupProgressBar();
+
+        setupTtsControls(
+                view
+        );
 
 
         readerContainer =
@@ -263,6 +347,15 @@ public class ReaderFragment extends Fragment {
                 )
         ) {
 
+            // Nothing to follow along with in a plain text box.
+            ttsButton.setVisibility(
+                    View.GONE
+            );
+
+            progressFooter.setVisibility(
+                    View.GONE
+            );
+
             displayTxtBook(book);
 
             return;
@@ -275,6 +368,10 @@ public class ReaderFragment extends Fragment {
                 )
         ) {
 
+            ttsButton.setVisibility(
+                    View.VISIBLE
+            );
+
             displayEpubBook(book);
 
             return;
@@ -286,10 +383,22 @@ public class ReaderFragment extends Fragment {
                 )
         ) {
 
+            ttsButton.setVisibility(
+                    View.VISIBLE
+            );
+
             displayPdfBook(book);
 
             return;
         }
+
+        ttsButton.setVisibility(
+                View.GONE
+        );
+
+        progressFooter.setVisibility(
+                View.GONE
+        );
 
         readerText.setText(
                 "This format is not supported yet."
@@ -420,6 +529,27 @@ public class ReaderFragment extends Fragment {
 
 
                     @Override
+                    public void onPlayRequested() {
+
+                        handlePlayRequest();
+                    }
+
+
+                    @Override
+                    public void onDictionaryRequested() {
+
+                        handleDictionaryRequest();
+                    }
+
+
+                    @Override
+                    public void onTranslateRequested() {
+
+                        handleTranslateRequest();
+                    }
+
+
+                    @Override
                     public void onSuccess(
                             FragmentFactory factory
                     ) {
@@ -467,11 +597,22 @@ public class ReaderFragment extends Fragment {
 
                             epubReaderBridge.observeProgress(
                                     epubNavigator,
-                                    (locatorJson, percentage) ->
-                                            scheduleProgressSave(
-                                                    locatorJson,
-                                                    percentage
-                                            )
+                                    (locatorJson, percentage) -> {
+
+                                        scheduleProgressSave(
+                                                locatorJson,
+                                                percentage
+                                        );
+
+                                        // While the voice is speaking, it drives the bar.
+                                        if (!ttsPlaying) {
+
+                                            updateProgress(
+                                                    percentage / 100.0,
+                                                    chapterOf(locatorJson)
+                                            );
+                                        }
+                                    }
                             );
 
                             refreshEpubHighlights();
@@ -1149,6 +1290,11 @@ public class ReaderFragment extends Fragment {
                                 locator,
                                 percentage
                         );
+
+                        updateProgress(
+                                percentage / 100.0,
+                                "Page " + page + " of " + pageCount
+                        );
                     }
 
 
@@ -1229,6 +1375,106 @@ public class ReaderFragment extends Fragment {
 
 
                     @Override
+                    public void onTtsState(
+                            boolean active,
+                            boolean playing
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        ttsActive =
+                                active;
+
+                        updateTtsUi(
+                                active,
+                                playing
+                        );
+                    }
+
+
+                    @Override
+                    public void onTtsError(
+                            String message
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        Toast.makeText(
+                                requireContext(),
+                                message,
+                                Toast.LENGTH_LONG
+                        ).show();
+                    }
+
+
+                    @Override
+                    public void onTtsRequested() {
+
+                        if (isAdded() && !ttsActive) {
+
+                            startTts(null);
+                        }
+                    }
+
+
+                    @Override
+                    public void onTranslateRequested(
+                            String text,
+                            double topFraction,
+                            double bottomFraction
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        float height =
+                                readerContainer.getHeight();
+
+                        showTranslation(
+                                text,
+                                topFraction < 0
+                                        ? Float.NaN
+                                        : (float) (topFraction * height),
+                                bottomFraction < 0
+                                        ? Float.NaN
+                                        : (float) (bottomFraction * height)
+                        );
+                    }
+
+
+                    @Override
+                    public void onDefineRequested(
+                            String text,
+                            double topFraction,
+                            double bottomFraction
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        float height =
+                                readerContainer.getHeight();
+
+                        // Negative = the viewer could not tell where the word is.
+                        showDictionary(
+                                text,
+                                topFraction < 0
+                                        ? Float.NaN
+                                        : (float) (topFraction * height),
+                                bottomFraction < 0
+                                        ? Float.NaN
+                                        : (float) (bottomFraction * height)
+                        );
+                    }
+
+
+                    @Override
                     public void onError(
                             String message
                     ) {
@@ -1294,6 +1540,843 @@ public class ReaderFragment extends Fragment {
 
             return null;
         }
+    }
+
+
+    // =========================================================
+    // Book progress bar
+    // =========================================================
+
+    private void setupProgressBar() {
+
+        progressSeek.setOnSeekBarChangeListener(
+                new SeekBar.OnSeekBarChangeListener() {
+
+                    @Override
+                    public void onProgressChanged(
+                            SeekBar seekBar,
+                            int progress,
+                            boolean fromUser
+                    ) {
+
+                        if (fromUser) {
+
+                            // Preview the percentage while dragging.
+                            progressPercent.setText(
+                                    Math.round(progress / 10f) + "%"
+                            );
+                        }
+                    }
+
+                    @Override
+                    public void onStartTrackingTouch(
+                            SeekBar seekBar
+                    ) {
+
+                        progressDragging = true;
+                    }
+
+                    @Override
+                    public void onStopTrackingTouch(
+                            SeekBar seekBar
+                    ) {
+
+                        progressDragging = false;
+
+                        seekToFraction(
+                                seekBar.getProgress() / 1000.0
+                        );
+                    }
+                }
+        );
+    }
+
+
+    /** [fraction] is 0.0 (start of the book) to 1.0 (end). */
+    private void updateProgress(
+            double fraction,
+            String label
+    ) {
+
+        if (progressDragging || progressSeek == null) {
+            return;
+        }
+
+        double clamped =
+                Math.max(0.0, Math.min(1.0, fraction));
+
+        progressSeek.setProgress(
+                (int) Math.round(clamped * 1000)
+        );
+
+        progressPercent.setText(
+                Math.round(clamped * 100) + "%"
+        );
+
+        if (label != null) {
+
+            progressLabel.setText(label);
+        }
+    }
+
+
+    /** Jumps to a point in the book. If the voice is on, it carries on from there. */
+    private void seekToFraction(
+            double fraction
+    ) {
+
+        if (epubNavigator != null) {
+
+            epubReaderBridge.seekToProgression(
+                    epubNavigator,
+                    fraction,
+                    locatorJson -> {
+
+                        if (epubTts != null) {
+
+                            // Keep it playing if it was playing, paused if it was paused.
+                            epubTts.seekTo(
+                                    locatorJson,
+                                    epubTts.isPlaying()
+                            );
+                        }
+                    }
+            );
+
+        } else if (pdfReaderView != null) {
+
+            pdfReaderView.seekTo(fraction);
+        }
+    }
+
+
+    /** The chapter title stored in an EPUB locator, or "" if there is none. */
+    private String chapterOf(
+            String locatorJson
+    ) {
+
+        try {
+
+            return new JSONObject(locatorJson)
+                    .optString("title", "");
+
+        } catch (Exception e) {
+
+            return "";
+        }
+    }
+
+
+    // =========================================================
+    // Dictionary
+    // =========================================================
+
+    /** "Dictionary" from the EPUB selection menu. */
+    private void handleDictionaryRequest() {
+
+        if (epubNavigator == null) {
+            return;
+        }
+
+        epubReaderBridge.getSelectionForLookup(
+                epubNavigator,
+                new EpubReaderBridge.LookupListener() {
+
+                    @Override
+                    public void onLookup(
+                            String text,
+                            String locatorJson,
+                            float top,
+                            float bottom
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        if (text == null || text.trim().isEmpty()) {
+
+                            Toast.makeText(
+                                    requireContext(),
+                                    "No text selected.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            return;
+                        }
+
+                        // Underline the word so it is easy to spot behind the popup.
+                        epubReaderBridge.showLookupMark(
+                                epubNavigator,
+                                locatorJson
+                        );
+
+                        showDictionary(
+                                text,
+                                top,
+                                bottom
+                        );
+                    }
+                }
+        );
+    }
+
+
+    /**
+     * Shows the dictionary card in the half of the reader away from the word
+     * (top / bottom are the word's position in pixels, or NaN if unknown).
+     */
+    private void showDictionary(
+            String text,
+            float top,
+            float bottom
+    ) {
+
+        dismissLookupPopups();
+
+        final DictionaryPopup popup =
+                new DictionaryPopup(
+                        requireContext()
+                );
+
+        dictionaryPopup =
+                popup;
+
+        popup.show(
+                readerContainer,
+                text,
+                top,
+                bottom,
+                new DictionaryPopup.Listener() {
+
+                    @Override
+                    public void onDismissed() {
+
+                        if (dictionaryPopup == popup) {
+
+                            dictionaryPopup =
+                                    null;
+                        }
+
+                        if (!dictionaryReplacing) {
+
+                            clearLookupMarks();
+                        }
+                    }
+                }
+        );
+    }
+
+
+    /** "Translate" from the EPUB selection menu. */
+    private void handleTranslateRequest() {
+
+        if (epubNavigator == null) {
+            return;
+        }
+
+        epubReaderBridge.getSelectionForLookup(
+                epubNavigator,
+                new EpubReaderBridge.LookupListener() {
+
+                    @Override
+                    public void onLookup(
+                            String text,
+                            String locatorJson,
+                            float top,
+                            float bottom
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        if (text == null || text.trim().isEmpty()) {
+
+                            Toast.makeText(
+                                    requireContext(),
+                                    "No text selected.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            return;
+                        }
+
+                        epubReaderBridge.showLookupMark(
+                                epubNavigator,
+                                locatorJson
+                        );
+
+                        showTranslation(
+                                text,
+                                top,
+                                bottom
+                        );
+                    }
+                }
+        );
+    }
+
+
+    /** Shows the translation card. First time with no languages chosen, it points to Settings. */
+    private void showTranslation(
+            String text,
+            float top,
+            float bottom
+    ) {
+
+        if (!TranslationPrefs.hasTargets(requireContext())) {
+
+            askToChooseLanguages();
+
+            return;
+        }
+
+        dismissLookupPopups();
+
+        final TranslatePopup popup =
+                new TranslatePopup(
+                        requireContext()
+                );
+
+        translatePopup =
+                popup;
+
+        popup.show(
+                readerContainer,
+                text,
+                top,
+                bottom,
+                new MlKitTranslationEngine(),
+                TranslationPrefs.getTargets(requireContext()),
+                new TranslatePopup.Listener() {
+
+                    @Override
+                    public void onDismissed() {
+
+                        if (translatePopup == popup) {
+
+                            translatePopup =
+                                    null;
+                        }
+
+                        if (!dictionaryReplacing) {
+
+                            clearLookupMarks();
+                        }
+                    }
+
+                    @Override
+                    public void onOpenSettings() {
+
+                        popup.dismiss();
+
+                        openSettings();
+                    }
+                }
+        );
+    }
+
+
+    /** Nothing chosen yet: say so, and take the reader to Settings to pick languages. */
+    private void askToChooseLanguages() {
+
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Choose your languages")
+                .setMessage(
+                        "Hey! To translate, first pick the language(s) you want text "
+                                + "translated into in Settings.\n\n"
+                                + "You can also download language packs there, so "
+                                + "translating works offline."
+                )
+                .setPositiveButton(
+                        "Open Settings",
+                        (dialog, which) -> openSettings()
+                )
+                .setNegativeButton(
+                        "Not now",
+                        null
+                )
+                .setOnDismissListener(dialog -> clearLookupMarks())
+                .show();
+    }
+
+
+    private void openSettings() {
+
+        requireActivity()
+                .getSupportFragmentManager()
+                .beginTransaction()
+                .replace(
+                        R.id.fragmentContainer,
+                        new SettingsFragment()
+                )
+                .addToBackStack(null)
+                .commit();
+    }
+
+
+    /** Closes the dictionary and translation cards, keeping the mark on the next word. */
+    private void dismissLookupPopups() {
+
+        // Replacing a card: keep the mark that was just placed on the new text.
+        dictionaryReplacing = true;
+
+        if (dictionaryPopup != null) {
+
+            dictionaryPopup.dismiss();
+        }
+
+        if (translatePopup != null) {
+
+            translatePopup.dismiss();
+        }
+
+        if (translatePopup != null) {
+
+            translatePopup.dismiss();
+        }
+
+        dictionaryReplacing = false;
+    }
+
+
+    /** Removes the underline and the selection left on the word that was looked up. */
+    private void clearLookupMarks() {
+
+        if (epubNavigator != null) {
+
+            epubReaderBridge.clearLookupMark(
+                    epubNavigator
+            );
+
+            clearEpubSelection();
+        }
+
+        if (pdfReaderView != null) {
+
+            pdfReaderView.clearLookup();
+        }
+    }
+
+
+    /** "Play" from the EPUB selection menu: read aloud starting at the selected text. */
+    private void handlePlayRequest() {
+
+        if (epubNavigator == null) {
+            return;
+        }
+
+        epubReaderBridge.getCurrentSelection(
+                epubNavigator,
+                new EpubReaderBridge.SelectionCallback() {
+
+                    @Override
+                    public void onSelection(
+                            String selectedText,
+                            String locatorJson,
+                            String chapterTitle
+                    ) {
+
+                        if (!isAdded()) {
+                            return;
+                        }
+
+                        if (
+                                locatorJson == null
+                                        || locatorJson.trim().isEmpty()
+                        ) {
+
+                            Toast.makeText(
+                                    requireContext(),
+                                    "No text selected.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+
+                            return;
+                        }
+
+                        if (epubTts != null) {
+
+                            // Already reading (or paused): jump to the selection and play.
+                            epubTts.seekTo(locatorJson, true);
+
+                        } else {
+
+                            startTts(locatorJson);
+                        }
+
+                        clearEpubSelection();
+                    }
+                }
+        );
+    }
+
+
+    // =========================================================
+    // Read aloud
+    // =========================================================
+
+    private void setupTtsControls(
+            View root
+    ) {
+
+        ttsSpeed =
+                ReaderPrefs.getTtsSpeed(
+                        requireContext()
+                );
+
+        updateSpeedLabel();
+
+        ttsButton.setOnClickListener(v -> {
+
+            if (ttsActive) {
+
+                stopTts();
+
+            } else {
+
+                startTts(null);
+            }
+        });
+
+        ttsPlayPause.setOnClickListener(v -> {
+
+            if (epubTts != null) {
+
+                epubTts.togglePlayPause();
+
+            } else if (pdfReaderView != null) {
+
+                if (ttsPlaying) {
+                    pdfReaderView.pauseTts();
+                } else {
+                    pdfReaderView.resumeTts();
+                }
+            }
+        });
+
+        root.findViewById(R.id.ttsNext).setOnClickListener(v -> {
+
+            if (epubTts != null) {
+                epubTts.next();
+            } else if (pdfReaderView != null) {
+                pdfReaderView.nextTts();
+            }
+        });
+
+        root.findViewById(R.id.ttsPrevious).setOnClickListener(v -> {
+
+            if (epubTts != null) {
+                epubTts.previous();
+            } else if (pdfReaderView != null) {
+                pdfReaderView.previousTts();
+            }
+        });
+
+        root.findViewById(R.id.ttsStop).setOnClickListener(v ->
+                stopTts()
+        );
+
+        // Choose a different voice (applies right away while reading).
+        root.findViewById(R.id.ttsVoice).setOnClickListener(v ->
+                VoicePickerDialog.show(
+                        requireContext(),
+                        ReaderPrefs.getTtsVoice(requireContext()),
+                        new VoicePickerDialog.Listener() {
+
+                            @Override
+                            public void onVoiceChosen(
+                                    String voiceName,
+                                    String languageTag
+                            ) {
+
+                                if (!isAdded()) {
+                                    return;
+                                }
+
+                                ReaderPrefs.setTtsVoice(
+                                        requireContext(),
+                                        voiceName,
+                                        languageTag
+                                );
+
+                                if (epubTts != null) {
+
+                                    epubTts.setVoice(
+                                            voiceName,
+                                            languageTag
+                                    );
+
+                                } else if (pdfReaderView != null) {
+
+                                    pdfReaderView.setTtsVoice(
+                                            voiceName
+                                    );
+                                }
+                            }
+                        }
+                )
+        );
+
+        // Tap the speed to step through 0.75x, 1x, 1.25x, 1.5x, 2x.
+        ttsSpeedLabel.setOnClickListener(v -> {
+
+            double[] speeds =
+                    ReaderPrefs.TTS_SPEEDS;
+
+            int next = 0;
+
+            for (int i = 0; i < speeds.length; i++) {
+
+                if (Math.abs(speeds[i] - ttsSpeed) < 0.01) {
+
+                    next = (i + 1) % speeds.length;
+
+                    break;
+                }
+            }
+
+            ttsSpeed =
+                    speeds[next];
+
+            ReaderPrefs.setTtsSpeed(
+                    requireContext(),
+                    ttsSpeed
+            );
+
+            updateSpeedLabel();
+
+            if (epubTts != null) {
+
+                epubTts.setSpeed(
+                        ttsSpeed
+                );
+
+            } else if (pdfReaderView != null) {
+
+                pdfReaderView.setTtsSpeed(
+                        ttsSpeed
+                );
+            }
+        });
+    }
+
+
+    /** @param startLocatorJson EPUB only: where to start (selected text), or null for "here". */
+    private void startTts(String startLocatorJson) {
+
+        // ---------- EPUB ----------
+        if (epubNavigator != null) {
+
+            if (epubReaderBridge.getCurrentPublication() == null) {
+
+                Toast.makeText(
+                        requireContext(),
+                        "The book is still loading.",
+                        Toast.LENGTH_SHORT
+                ).show();
+
+                return;
+            }
+
+            epubTts =
+                    new EpubTtsController(
+                            requireActivity().getApplication(),
+                            epubReaderBridge.getCurrentPublication(),
+                            epubNavigator
+                    );
+
+            ttsActive =
+                    true;
+
+            updateTtsUi(
+                    true,
+                    true
+            );
+
+            epubTts.start(
+                    ttsSpeed,
+                    ReaderPrefs.getTtsVoice(requireContext()),
+                    ReaderPrefs.getTtsVoiceLanguage(requireContext()),
+                    startLocatorJson,
+                    new EpubTtsController.Listener() {
+
+                        @Override
+                        public void onPlayingChanged(
+                                boolean playing
+                        ) {
+
+                            if (isAdded()) {
+
+                                updateTtsUi(
+                                        true,
+                                        playing
+                                );
+                            }
+                        }
+
+                        @Override
+                        public void onSpokenProgress(
+                                double fraction
+                        ) {
+
+                            if (isAdded()) {
+
+                                updateProgress(
+                                        fraction,
+                                        "Reading aloud"
+                                );
+                            }
+                        }
+
+                        @Override
+                        public void onStopped() {
+
+                            epubTts =
+                                    null;
+
+                            ttsActive =
+                                    false;
+
+                            if (isAdded()) {
+
+                                updateTtsUi(
+                                        false,
+                                        false
+                                );
+                            }
+                        }
+
+                        @Override
+                        public void onError(
+                                String message
+                        ) {
+
+                            if (isAdded()) {
+
+                                Toast.makeText(
+                                        requireContext(),
+                                        message,
+                                        Toast.LENGTH_LONG
+                                ).show();
+                            }
+                        }
+                    }
+            );
+
+            return;
+        }
+
+        // ---------- PDF ----------
+        if (pdfReaderView != null) {
+
+            ttsActive =
+                    true;
+
+            updateTtsUi(
+                    true,
+                    true
+            );
+
+            pdfReaderView.startTts(
+                    ttsSpeed,
+                    ReaderPrefs.getTtsVoice(requireContext())
+            );
+
+            return;
+        }
+
+        Toast.makeText(
+                requireContext(),
+                "The book is still loading.",
+                Toast.LENGTH_SHORT
+        ).show();
+    }
+
+
+    private void stopTts() {
+
+        ttsActive =
+                false;
+
+        if (epubTts != null) {
+
+            epubTts.stop();
+
+            epubTts =
+                    null;
+        }
+
+        if (pdfReaderView != null) {
+
+            pdfReaderView.stopTts();
+        }
+
+        updateTtsUi(
+                false,
+                false
+        );
+    }
+
+
+    private void updateTtsUi(
+            boolean active,
+            boolean playing
+    ) {
+
+        ttsPlaying =
+                playing;
+
+        ttsBar.setVisibility(
+                active
+                        ? View.VISIBLE
+                        : View.GONE
+        );
+
+        ttsPlayPause.setImageResource(
+                playing
+                        ? android.R.drawable.ic_media_pause
+                        : android.R.drawable.ic_media_play
+        );
+
+        ttsPlayPause.setContentDescription(
+                playing
+                        ? "Pause"
+                        : "Play"
+        );
+
+        // The header button becomes "Stop" while reading aloud.
+        ttsButton.setText(
+                active
+                        ? "Stop"
+                        : "Listen"
+        );
+
+        ttsButton.setContentDescription(
+                active
+                        ? "Stop reading aloud"
+                        : "Read aloud"
+        );
+    }
+
+
+    private void updateSpeedLabel() {
+
+        String label =
+                (ttsSpeed == Math.rint(ttsSpeed)
+                        ? String.valueOf((int) ttsSpeed)
+                        : String.valueOf(ttsSpeed))
+                        + "x";
+
+        // 1.0 -> "1x", 1.25 -> "1.25x"
+        if (ttsSpeed == 1.0) {
+            label = "1x";
+        }
+
+        ttsSpeedLabel.setText(
+                label
+        );
     }
 
 
@@ -1392,6 +2475,19 @@ public class ReaderFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
+
+        if (dictionaryPopup != null) {
+
+            dictionaryPopup.dismiss();
+        }
+
+        if (epubTts != null) {
+
+            epubTts.stop();
+
+            epubTts =
+                    null;
+        }
 
         flushProgress();
 

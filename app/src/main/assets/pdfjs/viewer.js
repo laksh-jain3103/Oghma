@@ -25,6 +25,22 @@
  *
  * Android -> page:
  *   oghma.addHighlight(locator, colorHex)   draw a highlight Android just saved
+ *   oghma.ttsStart/ttsPause/ttsResume/ttsNext/ttsPrevious/ttsStop/ttsRateChanged()
+ *   oghma.ttsOnStart/ttsOnDone/ttsOnError(id)   speech progress from Android
+ *
+ * Read aloud (Text view only): the page splits the text into sentences, hands them to Android
+ * one by one (OghmaPdf.ttsSpeak) and highlights the sentence Android reports as started.
+ *   OghmaPdf.ttsSpeak(text, id) / ttsHalt()
+ *   OghmaPdf.onTtsState(active, playing) / onTtsError(message)
+ *   OghmaPdf.onTtsRequested()      the "Play" button of the selection bar was tapped
+ *   OghmaPdf.onDefine(text, topFrac, bottomFrac)   "Dictionary" was tapped; the fractions say
+ *                                  where the word is, as 0..1 of the window height
+ *   OghmaPdf.onTranslate(text, topFrac, bottomFrac)  same, for "Translate"
+ *
+ * While the voice is speaking, reading progress is reported from the spoken sentence (so the
+ * book's progress bar follows the audio); otherwise it comes from the scroll position.
+ * Android -> page: oghma.seekFraction(0..1) jumps to a point in the document.
+ *                  oghma.clearLookup() removes the mark on the looked-up word.
  */
 (function () {
     'use strict';
@@ -208,6 +224,9 @@
     /* ------------------------------------------------------------------ */
 
     function enterMode(m, pos) {
+        // Reading aloud follows the re-flowed text, so it ends when you leave Text view.
+        if (m !== 'text' && tts.active) { ttsStop(); }
+
         mode = m;
         store('oghma.pdf.mode', m);
 
@@ -247,6 +266,7 @@
         store('oghma.pdf.fs', fontSize);
         applyFontSize();
         scrollToPos(pos.page, pos.frac);
+        setTimeout(refreshTtsHighlight, 60);
     }
     fsMinus.addEventListener('click', function () { changeFont(-2); });
     fsPlus.addEventListener('click', function () { changeFont(2); });
@@ -696,6 +716,7 @@
 
     function reportProgress() {
         if (!activeEls().length) { return; }
+        if (tts.playing) { return; }      // the spoken sentence reports progress instead
         var p = locateTop();
         if (Android && Android.onProgress) {
             Android.onProgress(p.page, p.frac, activeEls().length);
@@ -1184,11 +1205,523 @@
         clearSelectionUi();
     });
 
+    // Dictionary: look the selected word up. The word stays marked behind the popup.
+    var lookupLayer = document.createElement('div');
+    lookupLayer.id = 'lookupLayer';
+    document.body.appendChild(lookupLayer);
+
+    function clearLookup() { lookupLayer.textContent = ''; }
+
+    // Dictionary and Translate both mark the selected text, hand it to Android, and let a card open
+    // on the side of the screen away from it. `bridgeName` is the Android method to call.
+    function lookupSelection(bridgeName) {
+        var s = pendingSel;
+        var sel = window.getSelection();
+        if (!s || !sel || sel.rangeCount === 0) { clearSelectionUi(); return; }
+
+        // Remember where the text is, then drop the selection handles.
+        var rects = sel.getRangeAt(0).getClientRects();
+        var sx = window.scrollX;
+        var sy = window.scrollY;
+        var top = null;
+        var bottom = null;
+
+        clearLookup();
+        for (var i = 0; i < rects.length; i++) {
+            var rc = rects[i];
+            if (rc.width < 1 || rc.height < 1) { continue; }
+            var d = document.createElement('div');
+            d.className = 'lookupHl';
+            d.style.left = (rc.left + sx) + 'px';
+            d.style.top = (rc.top + sy) + 'px';
+            d.style.width = rc.width + 'px';
+            d.style.height = rc.height + 'px';
+            lookupLayer.appendChild(d);
+            if (top === null || rc.top < top) { top = rc.top; }
+            if (bottom === null || rc.bottom > bottom) { bottom = rc.bottom; }
+        }
+
+        var text = s.text;
+        clearSelectionUi();
+
+        if (Android && Android[bridgeName]) {
+            var vh = window.innerHeight || 1;
+            Android[bridgeName](
+                text,
+                top === null ? -1 : Math.max(0, top / vh),
+                bottom === null ? -1 : Math.min(1, bottom / vh)
+            );
+        }
+    }
+
+    document.getElementById('dictBtn').addEventListener('click', function () {
+        lookupSelection('onDefine');
+    });
+
+    document.getElementById('transBtn').addEventListener('click', function () {
+        lookupSelection('onTranslate');
+    });
+
+    // Play: read aloud starting at the selected text.
+    document.getElementById('playBtn').addEventListener('click', function () {
+        var s = pendingSel;
+        clearSelectionUi();
+        if (!s) { return; }
+
+        tts.pendingPlay = { page: s.page, text: s.text, occ: s.occ };
+
+        if (tts.active) {
+            ttsStart();                                   // engine already running: jump there
+        } else if (Android && Android.onTtsRequested) {
+            Android.onTtsRequested();                     // Android starts the engine, then calls ttsStart()
+        }
+    });
+
+
+    /* ------------------------------------------------------------------ */
+    /* READ ALOUD                                                         */
+    /* ------------------------------------------------------------------ */
+
+    var ttsLayer = document.createElement('div');
+    ttsLayer.id = 'ttsLayer';
+    document.body.appendChild(ttsLayer);
+
+    var tts = {
+        active: false,      // the reader is switched on (playing or paused)
+        playing: false,
+        gen: 0,             // bumped on every restart so late callbacks can be ignored
+        seq: 0,
+        queue: [],          // sentences already handed to Android: {id, pos, s}
+        next: { sec: 0, sent: 0 },   // next sentence to hand over
+        cursor: null,       // position of the sentence currently being read
+        item: null,         // the same, with its text/element (for the highlight)
+        endReached: false,
+        filling: false,
+        pendingPlay: null   // {page, text, occ}: where "Play" in the selection bar wants to start
+    };
+
+    var ABBREVIATION = /(?:^|[\s(])(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|No|Fig|Vol|Inc|Ltd|Co|e\.g|i\.e|[A-Z])\.$/;
+
+    // Text -> sentences, with their character offsets inside the paragraph.
+    function splitSentences(text) {
+        var re = /[^.!?\u2026]+(?:[.!?\u2026]+["'\u201D\u2019)\]]*|$)\s*/g;
+        var raw = [];
+        var m;
+        while ((m = re.exec(text)) !== null) {
+            if (m[0].length === 0) { re.lastIndex++; continue; }
+            if (m[0].trim()) { raw.push({ start: m.index, end: m.index + m[0].length }); }
+        }
+
+        // "Dr. Smith" or "e.g. this" are not sentence ends.
+        var merged = [];
+        raw.forEach(function (r) {
+            var prev = merged[merged.length - 1];
+            if (prev && ABBREVIATION.test(text.slice(prev.start, prev.end).trim())) {
+                prev.end = r.end;
+            } else {
+                merged.push({ start: r.start, end: r.end });
+            }
+        });
+
+        // Android refuses very long utterances, so cut those at a space.
+        var out = [];
+        function add(a, b) {
+            var t = text.slice(a, b).replace(/\s+/g, ' ').trim();
+            if (t) { out.push({ start: a, end: b, text: t }); }
+        }
+        merged.forEach(function (r) {
+            var a = r.start;
+            while (r.end - a > 3000) {
+                var cut = text.lastIndexOf(' ', a + 3000);
+                if (cut <= a) { cut = a + 3000; }
+                add(a, cut);
+                a = cut;
+            }
+            add(a, r.end);
+        });
+        return out;
+    }
+
+    function sentencesOf(secIdx) {
+        var el = reflowEls[secIdx];
+        if (!el || !el._loaded) { return null; }
+        if (el._sents) { return el._sents; }
+
+        var list = [];
+        var blocks = el.querySelectorAll('p:not(.muted), h3');
+        for (var i = 0; i < blocks.length; i++) {
+            var block = blocks[i];
+            splitSentences(block.textContent).forEach(function (sn) {
+                list.push({ el: block, start: sn.start, end: sn.end, text: sn.text });
+            });
+        }
+        el._sents = list;
+        return list;
+    }
+
+    // The sentence at `pos`, or the next one after it (moving on to later pages as needed).
+    function resolveForward(pos) {
+        if (pos.sec >= reflowEls.length) { return Promise.resolve(null); }
+        return loadReflowPage(reflowEls[pos.sec]).then(function () {
+            var list = sentencesOf(pos.sec) || [];
+            if (pos.sent < list.length) { return { pos: pos, s: list[pos.sent] }; }
+            return resolveForward({ sec: pos.sec + 1, sent: 0 });
+        });
+    }
+
+    // The sentence at `pos`, or the previous one before it.
+    function resolveBackward(pos) {
+        if (pos.sec < 0) { return Promise.resolve(null); }
+        return loadReflowPage(reflowEls[pos.sec]).then(function () {
+            var list = sentencesOf(pos.sec) || [];
+            var i = Math.min(pos.sent, list.length - 1);
+            if (i >= 0) { return { pos: { sec: pos.sec, sent: i }, s: list[i] }; }
+            return resolveBackward({ sec: pos.sec - 1, sent: Infinity });
+        });
+    }
+
+    // Range for characters start..end of a paragraph (works even with highlight <mark>s inside).
+    function rangeForOffsets(el, start, end) {
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        var pos = 0;
+        var node;
+        var range = document.createRange();
+        var started = false;
+        var last = null;
+        while ((node = walker.nextNode())) {
+            var len = node.nodeValue.length;
+            last = node;
+            if (!started && start < pos + len) {
+                range.setStart(node, start - pos);
+                started = true;
+            }
+            if (started && end <= pos + len) {
+                range.setEnd(node, end - pos);
+                return range;
+            }
+            pos += len;
+        }
+        if (started && last) {
+            range.setEnd(last, last.nodeValue.length);
+            return range;
+        }
+        return null;
+    }
+
+    function clearTtsHighlight() {
+        ttsLayer.textContent = '';
+        tts.item = null;
+    }
+
+    function highlightSentence(item) {
+        ttsLayer.textContent = '';
+        tts.item = item;
+
+        var range = rangeForOffsets(item.s.el, item.s.start, item.s.end);
+        if (!range) { return; }
+
+        var sx = window.scrollX;
+        var sy = window.scrollY;
+        var rects = range.getClientRects();
+        var firstTop = null;
+        var lastBottom = null;
+
+        for (var i = 0; i < rects.length; i++) {
+            var rc = rects[i];
+            if (rc.width < 1 || rc.height < 1) { continue; }
+            var d = document.createElement('div');
+            d.className = 'ttsHl';
+            d.style.left = (rc.left + sx) + 'px';
+            d.style.top = (rc.top + sy) + 'px';
+            d.style.width = rc.width + 'px';
+            d.style.height = rc.height + 'px';
+            ttsLayer.appendChild(d);
+            if (firstTop === null) { firstTop = rc.top; }
+            lastBottom = rc.bottom;
+        }
+
+        // Progress follows the voice: where in its page is this sentence?
+        var secEl = item.pos ? reflowEls[item.pos.sec] : null;
+        if (secEl && firstTop !== null && Android && Android.onProgress) {
+            var secRect = secEl.getBoundingClientRect();
+            var frac = secRect.height ? (firstTop - secRect.top) / secRect.height : 0;
+            Android.onProgress(item.pos.sec + 1, Math.min(1, Math.max(0, frac)), reflowEls.length);
+        }
+
+        // Keep the sentence being read on screen.
+        if (firstTop !== null) {
+            var vh = window.innerHeight;
+            if (firstTop < 70 || lastBottom > vh - 90) {
+                window.scrollTo({ top: sy + firstTop - vh * 0.25, behavior: 'smooth' });
+            }
+        }
+    }
+
+    function refreshTtsHighlight() {
+        if (tts.active && tts.item) { highlightSentence(tts.item); }
+    }
+
+    function ttsNotify() {
+        if (Android && Android.onTtsState) { Android.onTtsState(tts.active, tts.playing); }
+    }
+
+    function ttsHaltNative() {
+        if (Android && Android.ttsHalt) { Android.ttsHalt(); }
+    }
+
+    // Keep up to three sentences queued in Android so there is no gap between them.
+    function ttsFill() {
+        if (!tts.playing || tts.filling) { return; }
+        tts.filling = true;
+        var gen = tts.gen;
+
+        (function loop() {
+            if (!tts.playing || gen !== tts.gen) { tts.filling = false; return; }
+            if (tts.queue.length >= 3) { tts.filling = false; return; }
+
+            resolveForward(tts.next).then(function (r) {
+                if (!tts.playing || gen !== tts.gen) { tts.filling = false; return; }
+
+                if (!r) {                       // end of the document
+                    tts.filling = false;
+                    tts.endReached = true;
+                    if (!tts.queue.length) { ttsStop(); }
+                    return;
+                }
+
+                var id = 'u' + (++tts.seq);
+                tts.queue.push({ id: id, pos: r.pos, s: r.s });
+                tts.next = { sec: r.pos.sec, sent: r.pos.sent + 1 };
+                if (Android && Android.ttsSpeak) { Android.ttsSpeak(r.s.text, id); }
+                loop();
+            });
+        })();
+    }
+
+    function ttsPlayFrom(pos) {
+        tts.gen++;
+        tts.queue = [];
+        tts.endReached = false;
+        tts.filling = false;
+        tts.next = pos;
+        tts.playing = true;
+        ttsHaltNative();
+        ttsNotify();
+        ttsFill();
+    }
+
+    // Which sentence of `list` contains the given text position?
+    function sentenceIndexAt(list, node, offset) {
+        var startEl = elementOf(node);
+        var block = startEl ? startEl.closest('p, h3') : null;
+        if (!block) { return 0; }
+
+        var pre = document.createRange();
+        pre.setStart(block, 0);
+        pre.setEnd(node, offset);
+        var off = pre.toString().length;
+
+        var firstOfBlock = -1;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].el !== block) { continue; }
+            if (firstOfBlock < 0) { firstOfBlock = i; }
+            if (off >= list[i].start && off < list[i].end) { return i; }
+        }
+        return firstOfBlock >= 0 ? firstOfBlock : 0;
+    }
+
+    // Start reading at the text the user selected ("Play" in the selection bar).
+    function ttsStartFromSelection(p) {
+        tts.active = true;
+        tts.cursor = null;
+        clearSelectionUi();
+
+        var secIdx = Math.min(reflowEls.length, Math.max(1, p.page)) - 1;
+
+        if (mode !== 'text') { enterMode('text', { page: secIdx + 1, frac: 0 }); }
+
+        loadReflowPage(reflowEls[secIdx]).then(function () {
+            var list = sentencesOf(secIdx) || [];
+            var sentIdx = 0;
+            var range = findRange([reflowEls[secIdx]], p.text, p.occ);
+            if (range) { sentIdx = sentenceIndexAt(list, range.startContainer, range.startOffset); }
+            ttsPlayFrom({ sec: secIdx, sent: sentIdx });
+        });
+    }
+
+    function ttsStart() {
+        if (!pdfDoc || !reflowEls.length) { return; }
+
+        if (tts.pendingPlay) {
+            var pending = tts.pendingPlay;
+            tts.pendingPlay = null;
+            ttsStartFromSelection(pending);
+            return;
+        }
+
+        tts.active = true;
+        tts.cursor = null;
+        clearSelectionUi();
+
+        if (mode !== 'text') { enterMode('text', locateTop()); }
+
+        var secIdx = Math.max(0, locateTop().page - 1);
+
+        loadReflowPage(reflowEls[secIdx]).then(function () {
+            var list = sentencesOf(secIdx) || [];
+            // First sentence that is (at least partly) below the toolbar.
+            var chosen = list.length;
+            for (var i = 0; i < list.length; i++) {
+                var r = rangeForOffsets(list[i].el, list[i].start, list[i].end);
+                if (r && r.getBoundingClientRect().bottom > 48) { chosen = i; break; }
+            }
+            ttsPlayFrom({ sec: secIdx, sent: chosen });
+        });
+    }
+
+    function ttsPause() {
+        if (!tts.active || !tts.playing) { return; }
+        var resume = tts.cursor || (tts.queue.length ? tts.queue[0].pos : tts.next);
+        tts.cursor = resume;
+        tts.playing = false;
+        tts.gen++;
+        tts.queue = [];
+        tts.filling = false;
+        ttsHaltNative();
+        ttsNotify();
+    }
+
+    function ttsResume() {
+        if (!tts.active || tts.playing) { return; }
+        ttsPlayFrom(tts.cursor || tts.next);
+    }
+
+    function ttsStop() {
+        tts.active = false;
+        tts.playing = false;
+        tts.gen++;
+        tts.queue = [];
+        tts.cursor = null;
+        tts.filling = false;
+        ttsHaltNative();
+        clearTtsHighlight();
+        ttsNotify();
+    }
+
+    function ttsJump(direction) {
+        if (!tts.active) { return; }
+        var base = tts.cursor || tts.next;
+
+        var target = direction > 0
+            ? resolveForward({ sec: base.sec, sent: base.sent + 1 })
+            : (base.sent > 0
+                ? resolveBackward({ sec: base.sec, sent: base.sent - 1 })
+                : resolveBackward({ sec: base.sec - 1, sent: Infinity }));
+
+        target.then(function (r) {
+            if (!r || !tts.active) { return; }
+            if (tts.playing) {
+                ttsPlayFrom(r.pos);
+            } else {
+                tts.cursor = r.pos;
+                highlightSentence({ pos: r.pos, s: r.s });
+            }
+        });
+    }
+
+    // Jump to a point in the document (the book's progress bar). If the voice is on, it follows.
+    function seekFraction(f) {
+        var els = activeEls();
+        if (!els.length) { return; }
+        f = Math.min(1, Math.max(0, f));
+        var total = f * els.length;
+        var idx = Math.min(els.length - 1, Math.floor(total));
+        var frac = total - idx;
+
+        scrollToPos(idx + 1, frac);
+
+        if (mode === 'text') {
+            // The target page may still be a placeholder: load it, then settle on the spot.
+            loadReflowPage(reflowEls[idx]).then(function () { scrollToPos(idx + 1, frac); });
+        }
+
+        if (tts.active && tts.playing && mode === 'text') {
+            // Restart reading from the first sentence on screen at the new spot.
+            tts.pendingPlay = null;
+            loadReflowPage(reflowEls[idx]).then(function () {
+                var list = sentencesOf(idx) || [];
+                var chosen = list.length;
+                for (var i = 0; i < list.length; i++) {
+                    var r = rangeForOffsets(list[i].el, list[i].start, list[i].end);
+                    if (r && r.getBoundingClientRect().bottom > 48) { chosen = i; break; }
+                }
+                ttsPlayFrom({ sec: idx, sent: chosen });
+            });
+        }
+    }
+
+    // Speech speed changed: restart the current sentence at the new speed.
+    function ttsRateChanged() {
+        if (tts.active && tts.playing) { ttsPlayFrom(tts.cursor || tts.next); }
+    }
+
+    function ttsFail(message) {
+        if (Android && Android.onTtsError) { Android.onTtsError(message); }
+        ttsStop();
+    }
+
+    // ---- progress reported by Android ----
+
+    function ttsOnStart(id) {
+        for (var i = 0; i < tts.queue.length; i++) {
+            if (tts.queue[i].id === id) {
+                var item = tts.queue[i];
+                tts.cursor = item.pos;
+                highlightSentence(item);
+                return;
+            }
+        }
+    }
+
+    function ttsOnDone(id) {
+        var idx = -1;
+        for (var i = 0; i < tts.queue.length; i++) {
+            if (tts.queue[i].id === id) { idx = i; }
+        }
+        if (idx < 0) { return; }            // from a queue we already threw away
+
+        tts.queue.splice(0, idx + 1);
+
+        if (!tts.queue.length && tts.endReached) { ttsStop(); return; }
+        ttsFill();
+    }
+
+    function ttsOnError(id) {
+        for (var i = 0; i < tts.queue.length; i++) {
+            if (tts.queue[i].id === id) { ttsFail('Reading aloud stopped unexpectedly.'); return; }
+        }
+    }
+
+    window.addEventListener('resize', function () { setTimeout(refreshTtsHighlight, 300); });
+
     /* ------------------------------------------------------------------ */
 
     window.oghma = {
         flushProgress: reportProgress,
         scrollToPage: function (page, frac) { scrollToPos(page, frac); },
+
+        seekFraction: seekFraction,
+        clearLookup: clearLookup,
+        ttsStart: ttsStart,
+        ttsPause: ttsPause,
+        ttsResume: ttsResume,
+        ttsNext: function () { ttsJump(1); },
+        ttsPrevious: function () { ttsJump(-1); },
+        ttsStop: ttsStop,
+        ttsRateChanged: ttsRateChanged,
+        ttsOnStart: ttsOnStart,
+        ttsOnDone: ttsOnDone,
+        ttsOnError: ttsOnError,
 
         // Called by Android after the note dialog saved a highlight.
         addHighlight: function (loc, color) {

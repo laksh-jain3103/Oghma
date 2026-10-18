@@ -62,6 +62,9 @@ dependencies {
     implementation(libs.googleid)
     implementation(libs.material)
     implementation("androidx.viewpager2:viewpager2:1.1.0")
+    // Translate selected text on the phone, with downloadable language packs (Google ML Kit)
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
 

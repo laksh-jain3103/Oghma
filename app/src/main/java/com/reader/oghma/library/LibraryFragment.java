@@ -37,6 +37,7 @@ import com.reader.oghma.api.model.GoogleBooksResponse;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.reader.HighlightDialog;
 import com.reader.oghma.reader.ReaderFragment;
+import com.reader.oghma.settings.SettingsFragment;
 import com.reader.oghma.data.entity.Progress;
 import com.reader.oghma.data.repository.ProgressRepository;
 import com.reader.oghma.search.GoogleBooksAdapter;
@@ -1502,14 +1503,16 @@ public class LibraryFragment extends Fragment {
         // -----------------------------------------------------
 
         settingsButton.setOnClickListener(
-                v -> {
-
-                    Toast.makeText(
-                            requireContext(),
-                            "Settings coming later",
-                            Toast.LENGTH_SHORT
-                    ).show();
-                }
+                v ->
+                        requireActivity()
+                                .getSupportFragmentManager()
+                                .beginTransaction()
+                                .replace(
+                                        R.id.fragmentContainer,
+                                        new SettingsFragment()
+                                )
+                                .addToBackStack(null)
+                                .commit()
         );
 
 

@@ -61,6 +61,23 @@ class PdfReaderView @JvmOverloads constructor(
         )
 
         fun onError(message: String)
+
+        /** Read-aloud state: [active] while the reader is on, [playing] while it is speaking. */
+        fun onTtsState(active: Boolean, playing: Boolean)
+
+        fun onTtsError(message: String)
+
+        /** "Play" was tapped in the selection bar: start reading aloud from the selected text. */
+        fun onTtsRequested()
+
+        /**
+         * "Dictionary" was tapped. [topFraction] and [bottomFraction] say where the selected text
+         * is, as fractions (0..1) of the view's height, so the popup can stay clear of it.
+         */
+        fun onDefineRequested(text: String, topFraction: Double, bottomFraction: Double)
+
+        /** "Translate" was tapped. The fractions work as for [onDefineRequested]. */
+        fun onTranslateRequested(text: String, topFraction: Double, bottomFraction: Double)
     }
 
     private val webView = WebView(context)
@@ -69,6 +86,22 @@ class PdfReaderView @JvmOverloads constructor(
     private var pdfFile: File? = null
     private var highlightsJson: String = "[]"
     private var destroyed = false
+
+    // Read aloud (text-to-speech). The page decides what to read, this speaks it.
+    private var ttsEngine: TtsEngineHelper? = null
+
+    private var ttsActive = false
+
+    private var ttsSpeed = 1.0
+
+    private val ttsCallbacks = object : TtsEngineHelper.Callbacks {
+
+        override fun onUtteranceStart(id: String) = runJs("oghma.ttsOnStart(${JSONObject.quote(id)})")
+
+        override fun onUtteranceDone(id: String) = runJs("oghma.ttsOnDone(${JSONObject.quote(id)})")
+
+        override fun onUtteranceError(id: String) = runJs("oghma.ttsOnError(${JSONObject.quote(id)})")
+    }
 
     init {
         addView(
@@ -167,6 +200,78 @@ class PdfReaderView @JvmOverloads constructor(
         )
     }
 
+    // ---------------------------------------------------------------------
+    // Read aloud
+    // ---------------------------------------------------------------------
+
+    /** Starts reading from the top of the screen. Switches to Text view if needed. */
+    fun startTts(speed: Double, voiceName: String?) {
+
+        ttsSpeed = speed
+
+        val helper = ttsEngine
+            ?: TtsEngineHelper(context, ttsCallbacks).also { ttsEngine = it }
+
+        helper.voiceName = voiceName
+
+        helper.setRate(speed.toFloat())
+
+        helper.prepare { ok, message ->
+
+            if (destroyed) return@prepare
+
+            if (!ok) {
+                listener?.onTtsError(message ?: "Text-to-speech isn't available.")
+                listener?.onTtsState(false, false)
+                return@prepare
+            }
+
+            runJs("oghma.ttsStart()")
+        }
+    }
+
+    /** Removes the mark shown on the word that was looked up (dictionary or translation). */
+    fun clearLookup() = runJs("oghma.clearLookup()")
+
+    /** Jumps to a point in the document, 0.0 (start) .. 1.0 (end). Reading follows if it is on. */
+    fun seekTo(fraction: Double) {
+        runJs("oghma.seekFraction(${fraction.coerceIn(0.0, 1.0)})")
+    }
+
+    fun pauseTts() = runJs("oghma.ttsPause()")
+
+    fun resumeTts() = runJs("oghma.ttsResume()")
+
+    fun nextTts() = runJs("oghma.ttsNext()")
+
+    fun previousTts() = runJs("oghma.ttsPrevious()")
+
+    fun stopTts() = runJs("oghma.ttsStop()")
+
+    /** Changes the voice while reading; the current sentence restarts with it. */
+    fun setTtsVoice(voiceName: String?) {
+
+        ttsEngine?.setVoice(voiceName)
+
+        runJs("oghma.ttsRateChanged()")
+    }
+
+    fun setTtsSpeed(speed: Double) {
+
+        ttsSpeed = speed
+
+        ttsEngine?.setRate(speed.toFloat())
+
+        runJs("oghma.ttsRateChanged()")
+    }
+
+    private fun runJs(code: String) {
+
+        if (destroyed) return
+
+        webView.evaluateJavascript("window.oghma && $code;", null)
+    }
+
     /** Ask the page to report the current position right now (call from onPause). */
     fun flushProgress() {
         if (destroyed) return
@@ -178,7 +283,10 @@ class PdfReaderView @JvmOverloads constructor(
 
     fun onPause() {
         flushProgress()
-        webView.onPause()
+        // A paused web view stops running page scripts; keep it going while reading aloud.
+        if (!ttsActive) {
+            webView.onPause()
+        }
     }
 
     fun onResume() {
@@ -188,6 +296,8 @@ class PdfReaderView @JvmOverloads constructor(
     fun destroy() {
         if (destroyed) return
         destroyed = true
+        ttsEngine?.shutdown()
+        ttsEngine = null
         listener = null
         pdfFile = null
         webView.removeJavascriptInterface(BRIDGE_NAME)
@@ -241,6 +351,46 @@ class PdfReaderView @JvmOverloads constructor(
         @JavascriptInterface
         fun onError(message: String) {
             post { listener?.onError(message) }
+        }
+
+        // ---- read aloud ----
+
+        @JavascriptInterface
+        fun ttsSpeak(text: String, id: String) {
+            post { ttsEngine?.speak(text, id) }
+        }
+
+        @JavascriptInterface
+        fun ttsHalt() {
+            post { ttsEngine?.halt() }
+        }
+
+        @JavascriptInterface
+        fun onTtsState(active: Boolean, playing: Boolean) {
+            post {
+                ttsActive = active
+                listener?.onTtsState(active, playing)
+            }
+        }
+
+        @JavascriptInterface
+        fun onTtsError(message: String) {
+            post { listener?.onTtsError(message) }
+        }
+
+        @JavascriptInterface
+        fun onTtsRequested() {
+            post { listener?.onTtsRequested() }
+        }
+
+        @JavascriptInterface
+        fun onDefine(text: String, topFraction: Double, bottomFraction: Double) {
+            post { listener?.onDefineRequested(text, topFraction, bottomFraction) }
+        }
+
+        @JavascriptInterface
+        fun onTranslate(text: String, topFraction: Double, bottomFraction: Double) {
+            post { listener?.onTranslateRequested(text, topFraction, bottomFraction) }
         }
     }
 

@@ -21,6 +21,7 @@ import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.ExperimentalReadiumApi
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
+import org.json.JSONObject
 import org.readium.r2.shared.util.Language
 
 /**
@@ -48,6 +49,9 @@ class EpubTtsController(
         fun onStopped()
 
         fun onError(message: String)
+
+        /** How far through the whole book the voice currently is, 0.0 .. 1.0. */
+        fun onSpokenProgress(fraction: Double)
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -68,11 +72,14 @@ class EpubTtsController(
      * @param speed 1.0 = normal speech rate.
      * @param voiceName the voice the user picked, or null for automatic.
      * @param voiceLanguage the picked voice's language tag, for example "en-US".
+     * @param startLocatorJson where to start (for example the selected text), or null to start
+     * from what is on screen.
      */
     fun start(
         speed: Double,
         voiceName: String?,
         voiceLanguage: String?,
+        startLocatorJson: String?,
         listener: Listener
     ) {
 
@@ -94,13 +101,14 @@ class EpubTtsController(
                 return@launch
             }
 
-            // Start from what is on screen right now.
+            // Start from the selection if there is one, otherwise from what is on screen.
             val initialLocator: Locator? =
-                try {
-                    visualNavigator.firstVisibleElementLocator()
-                } catch (e: Exception) {
-                    null
-                }
+                parseLocator(startLocatorJson)
+                    ?: try {
+                        visualNavigator.firstVisibleElementLocator()
+                    } catch (e: Exception) {
+                        null
+                    }
 
             val created = factory.createNavigator(
                 listener = object : TtsNavigator.Listener {
@@ -155,6 +163,8 @@ class EpubTtsController(
             .onEach { locator ->
 
                 showHighlight(locator)
+
+                locator.locations.totalProgression?.let { listener?.onSpokenProgress(it) }
 
                 try {
                     visualNavigator.go(locator, animated = false)
@@ -247,6 +257,36 @@ class EpubTtsController(
 
         if (tts.hasPreviousUtterance()) {
             tts.skipToPreviousUtterance()
+        }
+    }
+
+
+    /**
+     * Moves the voice to [locatorJson] (a position or a selection).
+     * @param play true to start/keep speaking from there, false to leave it paused if it was.
+     */
+    fun seekTo(locatorJson: String?, play: Boolean) {
+
+        val locator = parseLocator(locatorJson) ?: return
+
+        val tts = navigator ?: return
+
+        tts.go(locator)
+
+        if (play) {
+            tts.play()
+        }
+    }
+
+
+    private fun parseLocator(json: String?): Locator? {
+
+        if (json.isNullOrBlank()) return null
+
+        return try {
+            Locator.fromJSON(JSONObject(json))
+        } catch (e: Exception) {
+            null
         }
     }
 
