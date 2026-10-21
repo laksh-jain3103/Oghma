@@ -3,6 +3,7 @@ package com.reader.oghma.library;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageButton;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -11,6 +12,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.entity.Bookmark;
+import com.reader.oghma.reader.HighlightColors;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,6 +28,10 @@ public class BookmarkAdapter
     public interface OnBookmarkClickListener {
 
         void onBookmarkClick(Bookmark bookmark);
+
+        /** The pencil button: edit colour / note, copy or delete. */
+        default void onBookmarkEdit(Bookmark bookmark) {
+        }
     }
 
     public void setOnBookmarkClickListener(
@@ -134,6 +140,69 @@ public class BookmarkAdapter
                         : ""
         );
 
+        // -----------------------------------------------------
+        // Highlight colour
+        // -----------------------------------------------------
+
+        holder.colorBar.setBackgroundColor(
+                HighlightColors.resolve(
+                        bookmark.color
+                )
+        );
+
+
+        // -----------------------------------------------------
+        // Note (only shown when the reader wrote one)
+        // -----------------------------------------------------
+
+        if (
+                bookmark.note != null
+                        && !bookmark.note.trim().isEmpty()
+        ) {
+
+            holder.note.setText(
+                    bookmark.note
+            );
+
+            holder.note.setVisibility(
+                    View.VISIBLE
+            );
+
+        } else {
+
+            holder.note.setVisibility(
+                    View.GONE
+            );
+        }
+
+
+        holder.editButton.setOnClickListener(
+                v -> {
+
+                    if (onBookmarkClickListener != null) {
+
+                        onBookmarkClickListener.onBookmarkEdit(
+                                bookmark
+                        );
+                    }
+                }
+        );
+
+        // Long-press is a shortcut for the same thing.
+        holder.itemView.setOnLongClickListener(
+                v -> {
+
+                    if (onBookmarkClickListener != null) {
+
+                        onBookmarkClickListener.onBookmarkEdit(
+                                bookmark
+                        );
+                    }
+
+                    return true;
+                }
+        );
+
         holder.itemView.setOnClickListener(
                 v -> {
 
@@ -231,6 +300,9 @@ public class BookmarkAdapter
         TextView bookTitle;
         TextView chapter;
         TextView selectedText;
+        TextView note;
+        View colorBar;
+        ImageButton editButton;
 
 
         BookmarkViewHolder(
@@ -255,6 +327,24 @@ public class BookmarkAdapter
             selectedText =
                     itemView.findViewById(
                             R.id.bookmarkText
+                    );
+
+
+            note =
+                    itemView.findViewById(
+                            R.id.bookmarkNote
+                    );
+
+
+            colorBar =
+                    itemView.findViewById(
+                            R.id.bookmarkColorBar
+                    );
+
+
+            editButton =
+                    itemView.findViewById(
+                            R.id.bookmarkEditButton
                     );
         }
     }

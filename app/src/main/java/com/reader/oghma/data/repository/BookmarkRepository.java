@@ -56,6 +56,22 @@ public class BookmarkRepository {
     }
 
 
+    public void updateNoteAndColor(
+            int bookmarkId,
+            String note,
+            int color
+    ) {
+
+        executor.execute(() ->
+                bookmarkDao.updateNoteAndColor(
+                        bookmarkId,
+                        note,
+                        color
+                )
+        );
+    }
+
+
     public void deleteBookmarkById(
             int bookmarkId
     ) {

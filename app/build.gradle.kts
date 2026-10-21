@@ -61,6 +61,10 @@ dependencies {
     implementation(libs.credentials.play.services.auth)
     implementation(libs.googleid)
     implementation(libs.material)
+    implementation("androidx.viewpager2:viewpager2:1.1.0")
+    // Translate selected text on the phone, with downloadable language packs (Google ML Kit)
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
 
@@ -72,7 +76,11 @@ dependencies {
     implementation("org.readium.kotlin-toolkit:readium-shared:3.3.0")
     implementation("org.readium.kotlin-toolkit:readium-streamer:3.3.0")
     implementation("org.readium.kotlin-toolkit:readium-navigator:3.3.0")
-    implementation("org.readium.kotlin-toolkit:readium-adapter-pdfium:3.3.0")
+    // Read aloud for EPUB (experimental Readium module, built on Media3)
+    implementation("org.readium.kotlin-toolkit:readium-navigator-media-tts:3.3.0")
+    implementation("androidx.media3:media3-common:1.10.0")
+    // PDFs are rendered by PDF.js (see assets/pdfjs), not by Readium's PDFium adapter,
+    // because PDFium only draws bitmaps and cannot select or highlight text.
 
     // Java 11+ API desugaring
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")

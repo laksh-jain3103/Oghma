@@ -10,3 +10,8 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+
+# PDF viewer: methods called from JavaScript (assets/pdfjs/viewer.js) must survive shrinking.
+-keepclassmembers class com.reader.oghma.reader.PdfReaderView$JsBridge {
+    @android.webkit.JavascriptInterface <methods>;
+}

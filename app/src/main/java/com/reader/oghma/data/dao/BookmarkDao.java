@@ -36,6 +36,18 @@ public interface BookmarkDao {
 
 
     @Query(
+            "UPDATE Bookmark " +
+                    "SET note = :note, color = :color " +
+                    "WHERE bookmarkId = :bookmarkId"
+    )
+    void updateNoteAndColor(
+            int bookmarkId,
+            String note,
+            int color
+    );
+
+
+    @Query(
             "DELETE FROM Bookmark " +
                     "WHERE bookmarkId = :bookmarkId"
     )

@@ -30,7 +30,7 @@ import com.reader.oghma.data.entity.Tag;
                 Tag.class,
                 BookTag.class
         },
-        version = 2,
+        version = 3,
         exportSchema = false
 )
 public abstract class OghmaDatabase
@@ -102,6 +102,34 @@ public abstract class OghmaDatabase
             };
 
 
+    /*
+     * Version 2 → Version 3
+     *
+     * Bookmark gets a highlight colour and an optional note.
+     * Existing bookmarks are kept (colour 0 = default yellow, no note).
+     */
+
+    private static final Migration MIGRATION_2_3 =
+            new Migration(2, 3) {
+
+                @Override
+                public void migrate(
+                        @NonNull SupportSQLiteDatabase database
+                ) {
+
+                    database.execSQL(
+                            "ALTER TABLE `Bookmark` " +
+                                    "ADD COLUMN `color` INTEGER NOT NULL DEFAULT 0"
+                    );
+
+                    database.execSQL(
+                            "ALTER TABLE `Bookmark` " +
+                                    "ADD COLUMN `note` TEXT"
+                    );
+                }
+            };
+
+
     public static OghmaDatabase getInstance(
             Context context
     ) {
@@ -119,7 +147,8 @@ public abstract class OghmaDatabase
                                             "oghma_database"
                                     )
                                     .addMigrations(
-                                            MIGRATION_1_2
+                                            MIGRATION_1_2,
+                                            MIGRATION_2_3
                                     )
                                     .fallbackToDestructiveMigration()
                                     .build();
