@@ -13,4 +13,5 @@ public class Book {
     public String coverPath;
     public String format;
     public long addedAt;
+    public boolean isBookmarked;
 }

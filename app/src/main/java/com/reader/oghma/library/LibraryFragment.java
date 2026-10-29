@@ -87,16 +87,26 @@ public class LibraryFragment extends Fragment {
 
     private ImageButton sortButton;
 
-    private ImageButton settingsButton;
+    private ImageButton menuButton;
 
 
     // =========================================================
-    // Navigation
+    // Navigation & Bookmarks
     // =========================================================
 
-    private BottomNavigationView bottomNavigation;
+    private androidx.drawerlayout.widget.DrawerLayout drawerLayout;
+
+    private com.google.android.material.navigation.NavigationView navigationView;
 
     private ViewPager2 libraryPager;
+
+    private View bookBookmarksPage;
+
+    private RecyclerView bookBookmarksRecyclerView;
+
+    private View bookBookmarksEmptyText;
+
+    private BookAdapter bookBookmarksAdapter;
 
     private View bookmarksPage;
 
@@ -233,6 +243,13 @@ public class LibraryFragment extends Fragment {
         );
 
 
+        viewModel =
+                new ViewModelProvider(this)
+                        .get(
+                                LibraryViewModel.class
+                        );
+
+
         // -----------------------------------------------------
         // Find views
         // -----------------------------------------------------
@@ -273,16 +290,70 @@ public class LibraryFragment extends Fragment {
                 );
 
 
-        settingsButton =
+        menuButton =
                 view.findViewById(
-                        R.id.settingsButton
+                        R.id.menuButton
                 );
 
 
-        bottomNavigation =
+        drawerLayout =
                 view.findViewById(
-                        R.id.bottomNavigation
+                        R.id.drawerLayout
                 );
+
+
+        navigationView =
+                view.findViewById(
+                        R.id.navigationView
+                );
+
+
+        bookBookmarksPage =
+                view.findViewById(
+                        R.id.bookBookmarksPage
+                );
+
+        bookBookmarksRecyclerView =
+                view.findViewById(
+                        R.id.bookBookmarksRecyclerView
+                );
+
+        bookBookmarksEmptyText =
+                view.findViewById(
+                        R.id.bookBookmarksEmptyText
+                );
+
+        bookBookmarksAdapter =
+                new BookAdapter();
+
+        bookBookmarksAdapter.setOnBookClickListener(
+                book -> openBook(book)
+        );
+
+        bookBookmarksAdapter.setOnBookMoreClickListener(
+                book -> showBookMenu(book)
+        );
+
+        bookBookmarksRecyclerView.setLayoutManager(
+                new LinearLayoutManager(
+                        requireContext()
+                )
+        );
+
+        bookBookmarksRecyclerView.setAdapter(
+                bookBookmarksAdapter
+        );
+
+        viewModel.getBookmarkedBooks().observe(
+                getViewLifecycleOwner(),
+                bookmarkedBooks -> {
+                    if (!isAdded()) return;
+                    bookBookmarksAdapter.setBooks(bookmarkedBooks);
+                    boolean isEmpty = bookmarkedBooks == null || bookmarkedBooks.isEmpty();
+                    bookBookmarksEmptyText.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
+                    bookBookmarksRecyclerView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
+                }
+        );
 
 
         bookmarksPage =
@@ -424,7 +495,7 @@ public class LibraryFragment extends Fragment {
         // Start on Library
         // -----------------------------------------------------
 
-        bottomNavigation.setSelectedItemId(
+        navigationView.setCheckedItem(
                 R.id.nav_library
         );
 
@@ -438,17 +509,19 @@ public class LibraryFragment extends Fragment {
                             public void handleOnBackPressed() {
 
                                 int selectedId =
-                                        bottomNavigation
-                                                .getSelectedItemId();
+                                        navigationView.getCheckedItem() != null
+                                                ? navigationView.getCheckedItem().getItemId()
+                                                : R.id.nav_library;
 
                                 if (
                                         selectedId != R.id.nav_library
                                 ) {
 
-                                    bottomNavigation
-                                            .setSelectedItemId(
-                                                    R.id.nav_library
-                                            );
+                                    int index = pageIndexForNav(R.id.nav_library);
+                                    libraryPager.setCurrentItem(index, true);
+                                    navigationView.setCheckedItem(
+                                            R.id.nav_library
+                                    );
 
                                     return;
                                 }
@@ -636,7 +709,13 @@ public class LibraryFragment extends Fragment {
 
     private void showBookMenu(Book book) {
 
+        String bookmarkOption =
+                book.isBookmarked
+                        ? "Remove Bookmark"
+                        : "Add Bookmark";
+
         String[] options = {
+                bookmarkOption,
                 "Book details",
                 "Remove from library"
         };
@@ -654,11 +733,29 @@ public class LibraryFragment extends Fragment {
 
                             if (which == 0) {
 
+                                boolean newStatus = !book.isBookmarked;
+
+                                viewModel.getRepository()
+                                        .updateBookmarkStatus(
+                                                book.bookId,
+                                                newStatus
+                                        );
+
+                                Toast.makeText(
+                                        requireContext(),
+                                        newStatus
+                                                ? "Added to bookmarks"
+                                                : "Removed from bookmarks",
+                                        Toast.LENGTH_SHORT
+                                ).show();
+
+                            } else if (which == 1) {
+
                                 showBookDetails(
                                         book
                                 );
 
-                            } else if (which == 1) {
+                            } else if (which == 2) {
 
                                 confirmRemoveBook(
                                         book
@@ -946,13 +1043,6 @@ public class LibraryFragment extends Fragment {
     // =========================================================
 
     private void setupViewModel() {
-
-        viewModel =
-                new ViewModelProvider(this)
-                        .get(
-                                LibraryViewModel.class
-                        );
-
 
         viewModel.getBooks().observe(
                 getViewLifecycleOwner(),
@@ -1462,15 +1552,16 @@ public class LibraryFragment extends Fragment {
                      */
 
                     if (
-                            bottomNavigation
-                                    .getSelectedItemId()
+                            navigationView.getCheckedItem() == null
+                                    || navigationView.getCheckedItem().getItemId()
                                     != R.id.nav_library
                     ) {
 
-                        bottomNavigation
-                                .setSelectedItemId(
-                                        R.id.nav_library
-                                );
+                        int index = pageIndexForNav(R.id.nav_library);
+                        libraryPager.setCurrentItem(index, true);
+                        navigationView.setCheckedItem(
+                                R.id.nav_library
+                        );
                     }
 
 
@@ -1499,11 +1590,29 @@ public class LibraryFragment extends Fragment {
 
 
         // -----------------------------------------------------
-        // Settings
+        // Menu / Drawer
         // -----------------------------------------------------
 
-        settingsButton.setOnClickListener(
-                v ->
+        menuButton.setOnClickListener(
+                v -> drawerLayout.openDrawer(
+                        androidx.core.view.GravityCompat.START
+                )
+        );
+
+
+        // -----------------------------------------------------
+        // Navigation View
+        // -----------------------------------------------------
+
+        navigationView.setNavigationItemSelectedListener(
+                item -> {
+
+                    int itemId = item.getItemId();
+
+                    if (itemId == R.id.nav_settings) {
+
+                        drawerLayout.closeDrawers();
+
                         requireActivity()
                                 .getSupportFragmentManager()
                                 .beginTransaction()
@@ -1512,28 +1621,20 @@ public class LibraryFragment extends Fragment {
                                         new SettingsFragment()
                                 )
                                 .addToBackStack(null)
-                                .commit()
-        );
+                                .commit();
 
-
-        // -----------------------------------------------------
-        // Bottom navigation
-        // -----------------------------------------------------
-
-        // Tapping a tab slides to its page; swiping pages updates the tab (see setupPager).
-        bottomNavigation.setOnItemSelectedListener(
-                item -> {
+                        return true;
+                    }
 
                     int index =
                             pageIndexForNav(
-                                    item.getItemId()
+                                    itemId
                             );
 
                     if (index < 0) {
                         return false;
                     }
 
-                    // Neighbouring pages slide; far jumps cut straight there.
                     if (libraryPager.getCurrentItem() != index) {
 
                         boolean adjacent =
@@ -1548,6 +1649,8 @@ public class LibraryFragment extends Fragment {
                     }
 
                     onPageShown(index);
+
+                    drawerLayout.closeDrawers();
 
                     return true;
                 }
@@ -1619,6 +1722,18 @@ public class LibraryFragment extends Fragment {
     }
 
 
+    private void showBookBookmarksPage() {
+
+        viewModeButton.setVisibility(
+                View.GONE
+        );
+
+        addBookButton.setVisibility(
+                View.GONE
+        );
+    }
+
+
     private void showBookmarksPage() {
 
         viewModeButton.setVisibility(
@@ -1639,9 +1754,11 @@ public class LibraryFragment extends Fragment {
 
     private static final int PAGE_LIBRARY = 0;
 
-    private static final int PAGE_NOTES = 1;
+    private static final int PAGE_BOOKMARKS = 1;
 
-    private static final int PAGE_FIND_MORE = 2;
+    private static final int PAGE_NOTES = 2;
+
+    private static final int PAGE_FIND_MORE = 3;
 
 
     private int pageIndexForNav(
@@ -1652,7 +1769,11 @@ public class LibraryFragment extends Fragment {
             return PAGE_LIBRARY;
         }
 
-        if (navId == R.id.nav_bookmarks) {
+        if (navId == R.id.nav_book_bookmarks) {
+            return PAGE_BOOKMARKS;
+        }
+
+        if (navId == R.id.nav_notes) {
             return PAGE_NOTES;
         }
 
@@ -1670,8 +1791,11 @@ public class LibraryFragment extends Fragment {
 
         switch (index) {
 
+            case PAGE_BOOKMARKS:
+                return R.id.nav_book_bookmarks;
+
             case PAGE_NOTES:
-                return R.id.nav_bookmarks;
+                return R.id.nav_notes;
 
             case PAGE_FIND_MORE:
                 return R.id.nav_find_more;
@@ -1690,6 +1814,10 @@ public class LibraryFragment extends Fragment {
 
             showLibraryPage();
 
+        } else if (index == PAGE_BOOKMARKS) {
+
+            showBookBookmarksPage();
+
         } else if (index == PAGE_NOTES) {
 
             showBookmarksPage();
@@ -1702,7 +1830,7 @@ public class LibraryFragment extends Fragment {
 
 
     /**
-     * Moves the three existing page views into a ViewPager2 so they can be swiped.
+     * Moves the four existing page views into a ViewPager2 so they can be swiped.
      *
      * The views themselves are untouched (same ids, same fields, same logic): they are only
      * re-parented, so everything that already works with them keeps working.
@@ -1722,7 +1850,7 @@ public class LibraryFragment extends Fragment {
                         requireContext()
                 );
 
-        // Opaque, like the other two pages, so nothing shows through while sliding.
+        // Opaque, like the other pages, so nothing shows through while sliding.
         libraryContainer.setBackgroundColor(
                 requireContext().getColor(
                         R.color.background
@@ -1732,6 +1860,13 @@ public class LibraryFragment extends Fragment {
         moveInto(libraryContainer, emptyLibrary);
 
         moveInto(libraryContainer, bookRecyclerView);
+
+        FrameLayout bookBookmarksContainer =
+                new FrameLayout(
+                        requireContext()
+                );
+
+        moveInto(bookBookmarksContainer, bookBookmarksPage);
 
         FrameLayout notesContainer =
                 new FrameLayout(
@@ -1747,14 +1882,17 @@ public class LibraryFragment extends Fragment {
 
         moveInto(findMoreContainer, findMorePage);
 
-        // These two start hidden in the layout; inside the pager they are always "visible"
+        // These start hidden in the layout; inside the pager they are always "visible"
         // and the pager decides which one is on screen.
+        bookBookmarksPage.setVisibility(View.VISIBLE);
+
         bookmarksPage.setVisibility(View.VISIBLE);
 
         findMorePage.setVisibility(View.VISIBLE);
 
         final View[] pages = {
                 libraryContainer,
+                bookBookmarksContainer,
                 notesContainer,
                 findMoreContainer
         };
@@ -1787,14 +1925,16 @@ public class LibraryFragment extends Fragment {
                             int position
                     ) {
 
-                        // Swiped to a new page: highlight its tab. The tab listener then does the
-                        // rest (it sees the pager is already there and just updates the screen).
+                        // Swiped to a new page: highlight its drawer item.
                         int navId =
                                 navForPageIndex(position);
 
-                        if (bottomNavigation.getSelectedItemId() != navId) {
+                        if (
+                                navigationView.getCheckedItem() == null
+                                        || navigationView.getCheckedItem().getItemId() != navId
+                        ) {
 
-                            bottomNavigation.setSelectedItemId(
+                            navigationView.setCheckedItem(
                                     navId
                             );
                         }

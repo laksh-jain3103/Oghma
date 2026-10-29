@@ -47,6 +47,26 @@ public class BookRepository {
     }
 
 
+    public LiveData<java.util.List<Book>> getBookmarkedBooks() {
+
+        return bookDao.getBookmarkedBooks();
+    }
+
+
+    public void updateBookmarkStatus(
+            int bookId,
+            boolean isBookmarked
+    ) {
+
+        executor.execute(() ->
+                bookDao.updateBookmarkStatus(
+                        bookId,
+                        isBookmarked
+                )
+        );
+    }
+
+
     // ---------------------------------------------------------
     // Insert book
     // ---------------------------------------------------------

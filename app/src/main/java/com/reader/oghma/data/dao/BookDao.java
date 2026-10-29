@@ -25,6 +25,12 @@ public interface BookDao {
     @Query("SELECT * FROM Book ORDER BY addedAt DESC")
     LiveData<List<Book>> getAll();
 
+    @Query("SELECT * FROM Book WHERE isBookmarked = 1 ORDER BY addedAt DESC")
+    LiveData<List<Book>> getBookmarkedBooks();
+
+    @Query("UPDATE Book SET isBookmarked = :isBookmarked WHERE bookId = :bookId")
+    void updateBookmarkStatus(int bookId, boolean isBookmarked);
+
     @Query("SELECT * FROM Book WHERE bookId = :bookId")
     Book getById(int bookId);
 }

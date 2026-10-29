@@ -1,331 +1,370 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<androidx.constraintlayout.widget.ConstraintLayout
+<androidx.drawerlayout.widget.DrawerLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawerLayout"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/background"
-    android:fitsSystemWindows="true">
+    android:layout_height="match_parent">
 
-    <!-- ===================================================== -->
-    <!-- Top header -->
-    <!-- ===================================================== -->
-
-    <LinearLayout
-        android:id="@+id/libraryHeader"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:background="@color/background_deep"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="20dp"
-        android:paddingTop="8dp"
-        android:paddingEnd="8dp"
-        android:paddingBottom="8dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
-
-        <TextView
-            android:id="@+id/libraryTitle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Oghma"
-            android:textColor="@color/text_primary"
-            android:textSize="28sp"
-            android:textStyle="bold" />
-
-        <ImageButton
-            android:id="@+id/searchButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Search library"
-            android:padding="12dp"
-            android:src="@android:drawable/ic_menu_search"
-            app:tint="@color/text_secondary" />
-
-        <ImageButton
-            android:id="@+id/sortButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Sort library"
-            android:padding="12dp"
-            android:src="@android:drawable/ic_menu_sort_by_size"
-            app:tint="@color/text_secondary" />
-
-        <ImageButton
-            android:id="@+id/settingsButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Settings"
-            android:padding="12dp"
-            android:src="@android:drawable/ic_menu_preferences"
-            app:tint="@color/text_secondary" />
-
-    </LinearLayout>
-
-
-    <!-- ===================================================== -->
-    <!-- Swipeable pages: Library / Notes / Find More.            -->
-    <!-- The three page views below are moved in here at runtime  -->
-    <!-- (see LibraryFragment.setupPager).                        -->
-    <!-- ===================================================== -->
-
-    <androidx.viewpager2.widget.ViewPager2
-        android:id="@+id/libraryPager"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/libraryHeader" />
-
-
-    <!-- ===================================================== -->
-    <!-- Notes page (highlights + notes) -->
-    <!-- ===================================================== -->
-
-    <FrameLayout
-        android:id="@+id/bookmarksPage"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:visibility="gone"
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:background="@color/background"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/libraryHeader">
+        android:fitsSystemWindows="true">
 
-        <TextView
-            android:id="@+id/bookmarksEmptyText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="No notes yet.\nSelect text while reading to highlight it."
-            android:gravity="center"
-            android:textColor="@color/text_secondary"
-            android:textSize="18sp"
-            android:visibility="gone" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/bookmarksRecyclerView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:paddingStart="12dp"
-            android:paddingTop="12dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="24dp" />
-
-    </FrameLayout>
-
-
-    <!-- ===================================================== -->
-    <!-- Find More page -->
-    <!-- ===================================================== -->
-
-    <FrameLayout
-        android:id="@+id/findMorePage"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:visibility="gone"
-        android:background="@color/background"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/libraryHeader">
+        <!-- ===================================================== -->
+        <!-- Top header -->
+        <!-- ===================================================== -->
 
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:padding="16dp">
+            android:id="@+id/libraryHeader"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:background="@color/background_deep"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <ImageButton
+                android:id="@+id/menuButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Open menu"
+                android:padding="12dp"
+                android:src="@android:drawable/ic_menu_manage"
+                app:tint="@color/text_primary" />
 
             <TextView
-                android:layout_width="wrap_content"
+                android:id="@+id/libraryTitle"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="Find Books"
+                android:layout_weight="1"
+                android:text="Oghma"
                 android:textColor="@color/text_primary"
-                android:textSize="24sp"
+                android:textSize="28sp"
                 android:textStyle="bold" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+            <ImageButton
+                android:id="@+id/searchButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Search library"
+                android:padding="12dp"
+                android:src="@android:drawable/ic_menu_search"
+                app:tint="@color/text_secondary" />
 
-                <EditText
-                    android:id="@+id/googleBooksSearchInput"
-                    android:layout_width="0dp"
-                    android:layout_height="50dp"
-                    android:layout_weight="1"
-                    android:hint="Search books..."
-                    android:inputType="text"
-                    android:maxLines="1"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:textColor="@color/text_primary"
-                    android:textColorHint="@color/text_secondary" />
-
-                <ImageButton
-                    android:id="@+id/googleBooksSearchButton"
-                    android:layout_width="50dp"
-                    android:layout_height="50dp"
-                    android:layout_marginStart="8dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Search Google Books"
-                    android:padding="12dp"
-                    android:src="@android:drawable/ic_menu_search"
-                    app:tint="@color/text_primary" />
-
-            </LinearLayout>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/googleBooksRecyclerView"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_marginTop="12dp"
-                android:layout_weight="1"
-                android:clipToPadding="false"
-                android:paddingBottom="16dp" />
-
-            <ProgressBar
-                android:id="@+id/googleBooksProgress"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/googleBooksEmptyText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:text="Search for a book to get started"
-                android:textColor="@color/text_secondary"
-                android:textSize="16sp" />
+            <ImageButton
+                android:id="@+id/sortButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Sort library"
+                android:padding="12dp"
+                android:src="@android:drawable/ic_menu_sort_by_size"
+                app:tint="@color/text_secondary" />
 
         </LinearLayout>
 
-    </FrameLayout>
+
+        <!-- ===================================================== -->
+        <!-- Swipeable pages: Library / Bookmarks / Notes / Find More-->
+        <!-- ===================================================== -->
+
+        <androidx.viewpager2.widget.ViewPager2
+            android:id="@+id/libraryPager"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/libraryHeader" />
 
 
-    <!-- ===================================================== -->
-    <!-- Empty library -->
-    <!-- ===================================================== -->
+        <!-- ===================================================== -->
+        <!-- Book-level Bookmarks page -->
+        <!-- ===================================================== -->
 
-    <LinearLayout
-        android:id="@+id/emptyLibrary"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:padding="32dp"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/libraryHeader">
+        <FrameLayout
+            android:id="@+id/bookBookmarksPage"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            android:background="@color/background"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/libraryHeader">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Your library is empty"
-            android:textColor="@color/text_primary"
-            android:textSize="22sp"
-            android:textStyle="bold" />
+            <TextView
+                android:id="@+id/bookBookmarksEmptyText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="No bookmarked books yet.\nAdd a bookmark from the book options menu."
+                android:gravity="center"
+                android:textColor="@color/text_secondary"
+                android:textSize="18sp"
+                android:visibility="gone" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/bookBookmarksRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingStart="10dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="24dp" />
+
+        </FrameLayout>
+
+
+        <!-- ===================================================== -->
+        <!-- Notes page (highlights + notes) -->
+        <!-- ===================================================== -->
+
+        <FrameLayout
+            android:id="@+id/bookmarksPage"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            android:background="@color/background"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/libraryHeader">
+
+            <TextView
+                android:id="@+id/bookmarksEmptyText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="No notes yet.\nSelect text while reading to highlight it."
+                android:gravity="center"
+                android:textColor="@color/text_secondary"
+                android:textSize="18sp"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/bookmarksRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingStart="12dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="24dp" />
+
+        </FrameLayout>
+
+
+        <!-- ===================================================== -->
+        <!-- Find More page -->
+        <!-- ===================================================== -->
+
+        <FrameLayout
+            android:id="@+id/findMorePage"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            android:background="@color/background"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/libraryHeader">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Find Books"
+                    android:textColor="@color/text_primary"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <EditText
+                        android:id="@+id/googleBooksSearchInput"
+                        android:layout_width="0dp"
+                        android:layout_height="50dp"
+                        android:layout_weight="1"
+                        android:hint="Search books..."
+                        android:inputType="text"
+                        android:maxLines="1"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_secondary" />
+
+                    <ImageButton
+                        android:id="@+id/googleBooksSearchButton"
+                        android:layout_width="50dp"
+                        android:layout_height="50dp"
+                        android:layout_marginStart="8dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Search Google Books"
+                        android:padding="12dp"
+                        android:src="@android:drawable/ic_menu_search"
+                        app:tint="@color/text_primary" />
+
+                </LinearLayout>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/googleBooksRecyclerView"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="12dp"
+                    android:layout_weight="1"
+                    android:clipToPadding="false"
+                    android:paddingBottom="16dp" />
+
+                <ProgressBar
+                    android:id="@+id/googleBooksProgress"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/googleBooksEmptyText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="Search for a book to get started"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="16sp" />
+
+            </LinearLayout>
+
+        </FrameLayout>
+
+
+        <!-- ===================================================== -->
+        <!-- Empty library -->
+        <!-- ===================================================== -->
+
+        <LinearLayout
+            android:id="@+id/emptyLibrary"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
             android:gravity="center"
-            android:text="Add a book to start reading."
-            android:textColor="@color/text_secondary"
-            android:textSize="15sp" />
+            android:orientation="vertical"
+            android:padding="32dp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/libraryHeader">
 
-    </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Your library is empty"
+                android:textColor="@color/text_primary"
+                android:textSize="22sp"
+                android:textStyle="bold" />
 
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="Add a book to start reading."
+                android:textColor="@color/text_secondary"
+                android:textSize="15sp" />
+
+        </LinearLayout>
+
+
+        <!-- ===================================================== -->
+        <!-- Books -->
+        <!-- ===================================================== -->
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/bookRecyclerView"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:clipToPadding="false"
+            android:paddingStart="10dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="96dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/libraryHeader" />
+
+
+        <!-- ===================================================== -->
+        <!-- View mode -->
+        <!-- ===================================================== -->
+
+        <ImageButton
+            android:id="@+id/viewModeButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="20dp"
+            android:layout_marginBottom="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Change library view"
+            android:padding="12dp"
+            android:src="@drawable/ic_view_list"
+            app:tint="@color/text_primary"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+
+        <!-- ===================================================== -->
+        <!-- Add book -->
+        <!-- ===================================================== -->
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/addBookButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="20dp"
+            android:layout_marginBottom="96dp"
+            android:contentDescription="Add book"
+            android:src="@android:drawable/ic_input_add"
+            app:tint="@color/on_primary"
+            app:backgroundTint="@color/primary"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
     <!-- ===================================================== -->
-    <!-- Books -->
+    <!-- Navigation Drawer -->
     <!-- ===================================================== -->
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/bookRecyclerView"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:clipToPadding="false"
-        android:paddingStart="10dp"
-        android:paddingTop="8dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="96dp"
-        android:visibility="gone"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/libraryHeader" />
-
-
-    <!-- ===================================================== -->
-    <!-- View mode -->
-    <!-- ===================================================== -->
-
-    <ImageButton
-        android:id="@+id/viewModeButton"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_marginEnd="20dp"
-        android:layout_marginBottom="132dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Change library view"
-        android:padding="12dp"
-        android:src="@drawable/ic_view_list"
-        app:tint="@color/text_primary"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent" />
-
-
-    <!-- ===================================================== -->
-    <!-- Add book -->
-    <!-- ===================================================== -->
-
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/addBookButton"
+    <com.google.android.material.navigation.NavigationView
+        android:id="@+id/navigationView"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="20dp"
-        android:layout_marginBottom="76dp"
-        android:contentDescription="Add book"
-        android:src="@android:drawable/ic_input_add"
-        app:tint="@color/on_primary"
-        app:backgroundTint="@color/primary"
-        app:layout_constraintBottom_toTopOf="@id/bottomNavigation"
-        app:layout_constraintEnd_toEndOf="parent" />
-
-
-    <!-- ===================================================== -->
-    <!-- Bottom navigation -->
-    <!-- ===================================================== -->
-
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/bottomNavigation"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
         android:background="@color/background_deep"
-        android:elevation="8dp"
         app:itemIconTint="@color/text_secondary"
         app:itemTextColor="@color/text_secondary"
-        app:labelVisibilityMode="labeled"
-        app:menu="@menu/library_navigation_menu"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:menu="@menu/drawer_navigation_menu" />
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+</androidx.drawerlayout.widget.DrawerLayout>

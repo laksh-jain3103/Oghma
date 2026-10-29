@@ -17,6 +17,8 @@ public class LibraryViewModel extends AndroidViewModel {
 
     private final LiveData<List<Book>> books;
 
+    private final LiveData<List<Book>> bookmarkedBooks;
+
     public LibraryViewModel(@NonNull Application application) {
 
         super(application);
@@ -24,10 +26,16 @@ public class LibraryViewModel extends AndroidViewModel {
         repository = new BookRepository(application);
 
         books = repository.getAllBooks();
+
+        bookmarkedBooks = repository.getBookmarkedBooks();
     }
 
     public LiveData<List<Book>> getBooks() {
         return books;
+    }
+
+    public LiveData<List<Book>> getBookmarkedBooks() {
+        return bookmarkedBooks;
     }
 
     public BookRepository getRepository() {

@@ -30,7 +30,7 @@ import com.reader.oghma.data.entity.Tag;
                 Tag.class,
                 BookTag.class
         },
-        version = 3,
+        version = 4,
         exportSchema = false
 )
 public abstract class OghmaDatabase
@@ -130,6 +130,29 @@ public abstract class OghmaDatabase
             };
 
 
+    /*
+     * Version 3 → Version 4
+     *
+     * Book gets an isBookmarked column for book-level bookmarks.
+     * Existing books keep isBookmarked = 0 (false).
+     */
+
+    private static final Migration MIGRATION_3_4 =
+            new Migration(3, 4) {
+
+                @Override
+                public void migrate(
+                        @NonNull SupportSQLiteDatabase database
+                ) {
+
+                    database.execSQL(
+                            "ALTER TABLE `Book` " +
+                                    "ADD COLUMN `isBookmarked` INTEGER NOT NULL DEFAULT 0"
+                    );
+                }
+            };
+
+
     public static OghmaDatabase getInstance(
             Context context
     ) {
@@ -148,7 +171,8 @@ public abstract class OghmaDatabase
                                     )
                                     .addMigrations(
                                             MIGRATION_1_2,
-                                            MIGRATION_2_3
+                                            MIGRATION_2_3,
+                                            MIGRATION_3_4
                                     )
                                     .fallbackToDestructiveMigration()
                                     .build();
