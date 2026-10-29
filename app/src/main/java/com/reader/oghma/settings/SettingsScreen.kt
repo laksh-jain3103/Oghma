@@ -2,6 +2,7 @@ package com.reader.oghma.settings
 
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -14,6 +15,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.google.firebase.auth.FirebaseAuth
+import com.reader.oghma.LoginActivity
 import com.reader.oghma.reader.EasterEgg
 import com.reader.oghma.reader.MlKitTranslationEngine
 import com.reader.oghma.reader.TranslationLanguages
@@ -21,7 +24,10 @@ import com.reader.oghma.reader.TranslationPrefs
 import java.util.Locale
 
 /**
- * The Settings screen. For now it has one section, Translation:
+ * The Settings screen. Sections:
+ *
+ *  - Account: the signed-in email and Log out.
+ *  - Translation:
  *
  *  - which languages text is translated INTO (the ones shown when you tap "Translate"),
  *  - the language your books are in (used when it cannot be detected, e.g. for a single word),
@@ -62,6 +68,9 @@ class SettingsScreen(
 
     private val rows = LinkedHashMap<String, Row>()
 
+    // True while we set checkboxes from code, so the listener does not treat it as a tap.
+    private var syncing = false
+
     private val sourceValue = TextView(context)
 
     private val summary = TextView(context)
@@ -84,6 +93,8 @@ class SettingsScreen(
             orientation = VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(32))
         }
+
+        buildAccountSection(body)
 
         buildTranslationSection(body)
 
@@ -139,6 +150,75 @@ class SettingsScreen(
         }
 
 
+    private fun buildAccountSection(body: LinearLayout) {
+
+        body.addView(sectionTitle("Account"))
+
+        val user = FirebaseAuth.getInstance().currentUser
+
+        val email = user?.email
+
+        val emailText =
+            when {
+                user == null -> "Not signed in"
+                !email.isNullOrEmpty() -> email
+                else -> "Signed in"
+            }
+
+        val card = card()
+
+        card.addView(
+            TextView(context).apply {
+                text = emailText
+                setTextColor(textPrimary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            }
+        )
+
+        body.addView(card)
+
+        body.addView(
+            TextView(context).apply {
+                text = "Log out"
+                setTextColor(textPrimary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(dp(14), dp(16), dp(14), dp(16))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { confirmLogout() }
+            },
+            LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(8) }
+        )
+    }
+
+
+    private fun confirmLogout() {
+
+        AlertDialog.Builder(context)
+            .setTitle("Log out?")
+            .setMessage("Are you sure you want to log out of Oghma?")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Log out") { _, _ -> logout() }
+            .show()
+    }
+
+
+    private fun logout() {
+
+        FirebaseAuth.getInstance().signOut()
+
+        val intent = Intent(context, LoginActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+
+        context.startActivity(intent)
+
+        (context as? android.app.Activity)?.finish()
+    }
+
+
     private fun buildTranslationSection(body: LinearLayout) {
 
         body.addView(sectionTitle("Translation"))
@@ -146,8 +226,8 @@ class SettingsScreen(
         body.addView(
             note(
                 "Pick the languages you want selected text translated into. " +
-                    "Download a language pack to translate without internet " +
-                    "(about 30 MB each, it runs on your phone)."
+                        "Download a language pack to translate without internet " +
+                        "(about 30 MB each, it runs on your phone)."
             )
         )
 
@@ -191,7 +271,7 @@ class SettingsScreen(
         body.addView(
             small(
                 "Translation by Google ML Kit, running on your phone. " +
-                    "Selected text is not sent anywhere once a pack is downloaded."
+                        "Selected text is not sent anywhere once a pack is downloaded."
             ).apply { setPadding(0, dp(20), 0, 0) }
         )
     }
@@ -203,9 +283,14 @@ class SettingsScreen(
             text = TranslationLanguages.label(code)
             setTextColor(textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            isChecked = code in targets
+            // Not usable until the pack is downloaded; updatePackButtons() enables it.
+            isChecked = false
+            isEnabled = false
+            alpha = 0.4f
             buttonTintList = android.content.res.ColorStateList.valueOf(accent)
             setOnCheckedChangeListener { _, checked ->
+
+                if (syncing) return@setOnCheckedChangeListener
 
                 if (checked) {
                     if (code !in targets) targets.add(code)
@@ -255,7 +340,16 @@ class SettingsScreen(
 
     private fun updatePackButtons() {
 
+        syncing = true
+
         rows.forEach { (code, row) ->
+
+            val ready = code in downloaded && code !in busy
+
+            // Only a downloaded pack can be ticked; the others stay greyed out.
+            row.check.isEnabled = ready
+            row.check.alpha = if (ready) 1f else 0.4f
+            row.check.isChecked = ready && code in targets
 
             when {
 
@@ -265,8 +359,8 @@ class SettingsScreen(
                 }
 
                 code in downloaded -> {
-                    row.action.text = "Downloaded \u2713"
-                    row.action.setTextColor(good)
+                    row.action.text = "Remove"
+                    row.action.setTextColor(link)
                 }
 
                 else -> {
@@ -275,6 +369,10 @@ class SettingsScreen(
                 }
             }
         }
+
+        syncing = false
+
+        updateSummary()
     }
 
     private fun onPackAction(code: String) {
@@ -310,7 +408,16 @@ class SettingsScreen(
 
                         busy.remove(code)
 
-                        if (!ok) toast("Couldn't delete the $name pack.")
+                        if (ok) {
+
+                            targets.remove(code)
+
+                            TranslationPrefs.setTargets(context, targets)
+
+                        } else {
+
+                            toast("Couldn't delete the $name pack.")
+                        }
 
                         refreshPacks()
                     }
@@ -389,15 +496,18 @@ class SettingsScreen(
 
     private fun updateSummary() {
 
+        // Only downloaded packs can be in use.
+        val active = targets.filter { it in downloaded }
+
         summary.apply {
-            setTextColor(if (targets.isEmpty()) accent else textSecondary)
+            setTextColor(if (active.isEmpty()) accent else textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setPadding(0, 0, 0, dp(6))
             text =
-                if (targets.isEmpty()) {
-                    "Nothing chosen yet. Tick at least one language to use Translate."
+                if (active.isEmpty()) {
+                    "Nothing chosen yet. Download a language pack, then tick it to use Translate."
                 } else {
-                    "Chosen: " + targets.joinToString(", ") { TranslationLanguages.displayName(it) }
+                    "Chosen: " + active.joinToString(", ") { TranslationLanguages.displayName(it) }
                 }
         }
     }
