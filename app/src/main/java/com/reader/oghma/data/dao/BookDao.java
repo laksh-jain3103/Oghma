@@ -37,6 +37,9 @@ public interface BookDao {
     @Query("UPDATE Book SET tagStatus = :status, tagAttempts = :attempts WHERE bookId = :bookId")
     void updateTagStatus(int bookId, String status, int attempts);
 
+    @Query("UPDATE Book SET title = :title, author = :author WHERE bookId = :bookId")
+    void updateTitleAuthor(int bookId, String title, String author);
+
     @Query("SELECT * FROM Book WHERE tagStatus = 'PENDING'")
     List<Book> getPendingTagBooks();
 }

@@ -21,6 +21,7 @@ import java.util.concurrent.Executors;
 
 public class BookRepository {
 
+    private final OghmaDatabase database;
     private final BookDao bookDao;
     private final TagDao tagDao;
     private final BookTagDao bookTagDao;
@@ -33,7 +34,7 @@ public class BookRepository {
             Application application
     ) {
 
-        OghmaDatabase database =
+        database =
                 OghmaDatabase.getInstance(
                         application
                 );
@@ -162,7 +163,12 @@ public class BookRepository {
     // ---------------------------------------------------------
 
     public void replaceAutoTags(int bookId, List<String> displayNames) {
-        executor.execute(() -> {
+        executor.execute(() -> replaceAutoTagsSync(bookId, displayNames));
+    }
+
+    /** Blocking version, all-or-nothing. Call from a background thread only. */
+    public void replaceAutoTagsSync(int bookId, List<String> displayNames) {
+        database.runInTransaction(() -> {
             bookTagDao.deleteAutoLinksForBook(bookId);
             if (displayNames != null) {
                 for (String name : displayNames) {
@@ -179,6 +185,10 @@ public class BookRepository {
             }
             tagDao.deleteUnusedTags();
         });
+    }
+
+    public void updateTitleAuthorSync(int bookId, String title, String author) {
+        bookDao.updateTitleAuthor(bookId, title, author);
     }
 
     public void addUserTag(int bookId, String tagName) {

@@ -15,10 +15,19 @@ public class BookMetadataService {
     public static class Result {
         public final Status status;
         public final List<String> tags;
+        /** The catalogue entry the tags came from (null unless SUCCESS). */
+        public final String matchedTitle;
+        public final List<String> matchedAuthors;
 
         public Result(Status status, List<String> tags) {
+            this(status, tags, null, null);
+        }
+
+        public Result(Status status, List<String> tags, String matchedTitle, List<String> matchedAuthors) {
             this.status = status;
             this.tags = tags != null ? tags : new ArrayList<>();
+            this.matchedTitle = matchedTitle;
+            this.matchedAuthors = matchedAuthors != null ? matchedAuthors : new ArrayList<>();
         }
     }
 
@@ -29,6 +38,7 @@ public class BookMetadataService {
         List<String> combinedRawTags = new ArrayList<>();
         boolean networkError = false;
         boolean foundAny = false;
+        BookMetadata matched = null;
 
         // 1. Google Books
         try {
@@ -36,6 +46,7 @@ public class BookMetadataService {
             if (gMeta != null && gMeta.rawTags != null && !gMeta.rawTags.isEmpty()) {
                 combinedRawTags.addAll(gMeta.rawTags);
                 foundAny = true;
+                matched = gMeta;
             }
         } catch (IOException e) {
             networkError = true;
@@ -47,6 +58,7 @@ public class BookMetadataService {
             if (olMeta != null && olMeta.rawTags != null && !olMeta.rawTags.isEmpty()) {
                 combinedRawTags.addAll(olMeta.rawTags);
                 foundAny = true;
+                if (matched == null) matched = olMeta;
             }
         } catch (IOException e) {
             networkError = true;
@@ -64,6 +76,8 @@ public class BookMetadataService {
             return new Result(Status.NOT_FOUND, null);
         }
 
-        return new Result(Status.SUCCESS, normalizedTags);
+        return new Result(Status.SUCCESS, normalizedTags,
+                matched != null ? matched.title : null,
+                matched != null ? matched.authors : null);
     }
 }

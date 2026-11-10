@@ -6,6 +6,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.pdf.PdfRenderer;
 import android.os.ParcelFileDescriptor;
+import com.reader.oghma.api.metadata.FilenameParser;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.repository.BookRepository;
 import com.reader.oghma.reader.EpubReaderBridge;
@@ -78,10 +79,7 @@ public class BookIngestor {
                 // -----------------------------
 
                 File destination =
-                        new File(
-                                booksDirectory,
-                                fileName
-                        );
+                        new File(booksDirectory, new File(fileName).getName());
 
                 copyFile(
                         inputStream,
@@ -96,10 +94,7 @@ public class BookIngestor {
                 Book book =
                         new Book();
 
-                book.title =
-                        removeExtension(
-                                fileName
-                        );
+                book.title = FilenameParser.cleanTitle(fileName);
 
                 book.author =
                         "Unknown author";
@@ -126,7 +121,8 @@ public class BookIngestor {
 
                     extractEpubDetails(
                             destination,
-                            book
+                            book,
+                            null
                     );
 
                 } else if (
@@ -155,10 +151,7 @@ public class BookIngestor {
                                 "";
                     }
 
-                    long bookId = repository.insertBookSync(
-                            book
-                    );
-                    TagBookWorker.enqueue(context, (int) bookId, false);
+                    insertAndTag(book, null);
 
                 } else {
 
@@ -167,10 +160,7 @@ public class BookIngestor {
 
                     book.coverPath = "";
 
-                    long bookId = repository.insertBookSync(
-                            book
-                    );
-                    TagBookWorker.enqueue(context, (int) bookId, false);
+                    insertAndTag(book, null);
                 }
 
 
@@ -228,10 +218,7 @@ public class BookIngestor {
                 // -----------------------------
 
                 File destination =
-                        new File(
-                                booksDirectory,
-                                fileName
-                        );
+                        new File(booksDirectory, new File(fileName).getName());
 
                 copyFile(
                         inputStream,
@@ -250,7 +237,7 @@ public class BookIngestor {
                         title != null
                                 && !title.trim().isEmpty()
                                 ? title
-                                : removeExtension(fileName);
+                                : FilenameParser.cleanTitle(fileName);
 
                 book.author =
                         author != null
@@ -280,7 +267,8 @@ public class BookIngestor {
 
                     extractEpubDetails(
                             destination,
-                            book
+                            book,
+                            categories
                     );
 
                 } else if (
@@ -309,41 +297,13 @@ public class BookIngestor {
                                 "";
                     }
 
-                    long bookId = repository.insertBookSync(
-                            book
-                    );
-
-                    if (categories != null && !categories.isEmpty()) {
-                        List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
-                        if (!tags.isEmpty()) {
-                            repository.replaceAutoTags((int) bookId, tags);
-                            repository.updateTagStatusSync((int) bookId, "DONE", 0);
-                        } else {
-                            TagBookWorker.enqueue(context, (int) bookId, false);
-                        }
-                    } else {
-                        TagBookWorker.enqueue(context, (int) bookId, false);
-                    }
+                    insertAndTag(book, categories);
 
                 } else {
 
                     book.coverPath = "";
 
-                    long bookId = repository.insertBookSync(
-                            book
-                    );
-
-                    if (categories != null && !categories.isEmpty()) {
-                        List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
-                        if (!tags.isEmpty()) {
-                            repository.replaceAutoTags((int) bookId, tags);
-                            repository.updateTagStatusSync((int) bookId, "DONE", 0);
-                        } else {
-                            TagBookWorker.enqueue(context, (int) bookId, false);
-                        }
-                    } else {
-                        TagBookWorker.enqueue(context, (int) bookId, false);
-                    }
+                    insertAndTag(book, categories);
                 }
 
 
@@ -610,9 +570,41 @@ public class BookIngestor {
         }
     }
 
+    /**
+     * Inserts the book and starts tagging. Must run on [executor] (or another background
+     * thread): Room refuses database access on the main thread.
+     */
+    private void insertAndTag(Book book, List<String> categories) {
+        long id = repository.insertBookSync(book);
+        int bookId = (int) id;
+
+        if (categories != null && !categories.isEmpty()) {
+            List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
+            if (!tags.isEmpty()) {
+                repository.replaceAutoTagsSync(bookId, tags);
+                repository.updateTagStatusSync(bookId, "DONE", 0);
+                return;
+            }
+        }
+
+        TagBookWorker.enqueue(context, bookId, false);
+    }
+
+    private void insertAndTagSafely(Book book, List<String> categories) {
+        // Readium calls back on the main thread. Hop to the background executor first.
+        executor.execute(() -> {
+            try {
+                insertAndTag(book, categories);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+    }
+
     private void extractEpubDetails(
             File epubFile,
-            Book book
+            Book book,
+            List<String> categories
     ) {
         File coversDirectory = new File(context.getFilesDir(), "covers");
         if (!coversDirectory.exists()) {
@@ -628,10 +620,12 @@ public class BookIngestor {
                 new EpubReaderBridge.DetailsCallback() {
                     @Override
                     public void onSuccess(File generatedCover, String parsedTitle, String parsedAuthor, String parsedIdentifier) {
-                        if (parsedTitle != null && !parsedTitle.trim().isEmpty()) {
+                        // Many downloaded EPUBs carry a junk title ("Unknown", "book1", the
+                        // file name again). Only trust it when it is not obviously junk.
+                        if (isUsableTitle(parsedTitle)) {
                             book.title = parsedTitle.trim();
                         }
-                        if (parsedAuthor != null && !parsedAuthor.trim().isEmpty()) {
+                        if (isUsableAuthor(parsedAuthor)) {
                             book.author = parsedAuthor.trim();
                         }
                         if (generatedCover != null && generatedCover.exists()) {
@@ -639,18 +633,31 @@ public class BookIngestor {
                         } else {
                             book.coverPath = "";
                         }
-                        long bookId = repository.insertBookSync(book);
-                        TagBookWorker.enqueue(context, (int) bookId, false);
+                        insertAndTagSafely(book, categories);
                     }
 
                     @Override
                     public void onError(String message) {
                         book.coverPath = "";
-                        long bookId = repository.insertBookSync(book);
-                        TagBookWorker.enqueue(context, (int) bookId, false);
+                        insertAndTagSafely(book, categories);
                     }
                 }
         );
+    }
+
+    private static boolean isUsableTitle(String t) {
+        if (t == null) return false;
+        String s = t.trim().toLowerCase(java.util.Locale.ROOT);
+        return !s.isEmpty() && !s.equals("unknown") && !s.equals("untitled") && !s.equals("title")
+                && !s.matches("book\\s*\\d*") && !s.matches("[0-9a-f\\-]{20,}");
+    }
+
+    private static boolean isUsableAuthor(String a) {
+        if (a == null) return false;
+        String s = a.trim().toLowerCase(java.util.Locale.ROOT);
+        return !s.isEmpty() && !s.equals("unknown") && !s.equals("unknown author")
+                && !s.equals("author") && !s.equals("calibre") && !s.contains("z-lib")
+                && !s.contains("libgen");
     }
 
     private void extractEpubCover(

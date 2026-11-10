@@ -37,6 +37,12 @@ public class GoogleBooksMetadataSource {
                 .searchBooks(query, apiKey, packageName, cert, null, null)
                 .execute();
 
+        int code = response.code();
+        if (code == 403 || code == 429 || code >= 500) {
+            // Rate limit, quota or server trouble: not "no such book". Let the worker retry.
+            throw new IOException("Metadata service returned HTTP " + code);
+        }
+
         if (!response.isSuccessful() || response.body() == null || response.body().items == null) {
             return null;
         }

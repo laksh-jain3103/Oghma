@@ -33,6 +33,12 @@ public class OpenLibraryMetadataSource {
                 .search(query, queryTitle, queryAuthor, queryIsbn, "key,title,author_name,subject,isbn", 5)
                 .execute();
 
+        int code = response.code();
+        if (code == 403 || code == 429 || code >= 500) {
+            // Rate limit, quota or server trouble: not "no such book". Let the worker retry.
+            throw new IOException("Metadata service returned HTTP " + code);
+        }
+
         if (!response.isSuccessful() || response.body() == null || response.body().docs == null) {
             return null;
         }

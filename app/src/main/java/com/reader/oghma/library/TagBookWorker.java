@@ -17,10 +17,11 @@ import androidx.work.WorkerParameters;
 
 import com.reader.oghma.BuildConfig;
 import com.reader.oghma.api.metadata.BookMetadataService;
+import com.reader.oghma.api.metadata.FilenameParser;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.repository.BookRepository;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -78,35 +79,81 @@ public class TagBookWorker extends Worker {
             return Result.success();
         }
 
-        List<String> authors = null;
-        if (book.author != null && !"Unknown author".equalsIgnoreCase(book.author.trim())) {
-            authors = Arrays.asList(book.author.split("[,&]"));
+        // Build the searches to try, best first.
+        //  - EPUBs with real metadata: title + author as stored.
+        //  - Files named like downloads ("Author - Title (z-lib.org)"): dig the title and
+        //    author out of the name, trying both orders, then ISBN if the name holds one.
+        boolean authorKnown = book.author != null
+                && !"Unknown author".equalsIgnoreCase(book.author.trim());
+
+        String isbn = FilenameParser.extractIsbn(book.title);
+        if (isbn == null && book.filePath != null) {
+            isbn = FilenameParser.extractIsbn(new java.io.File(book.filePath).getName());
         }
 
+        List<FilenameParser.Candidate> candidates = new ArrayList<>();
+        if (authorKnown) {
+            List<String> authors = new ArrayList<>();
+            for (String a : book.author.split("[,&]")) {
+                if (!a.trim().isEmpty()) authors.add(a.trim());
+            }
+            candidates.add(new FilenameParser.Candidate(book.title, authors));
+        } else {
+            candidates.addAll(FilenameParser.candidates(book.title));
+        }
+
+        BookMetadataService service = new BookMetadataService();
         String apiKey = BuildConfig.GOOGLE_BOOKS_API_KEY;
         String packageName = getApplicationContext().getPackageName();
         String cert = BuildConfig.GOOGLE_BOOKS_CERT;
 
-        BookMetadataService service = new BookMetadataService();
-        BookMetadataService.Result metadataResult = service.fetchAndNormalizeTags(
-                book.title, authors, null, apiKey, packageName, cert
-        );
+        BookMetadataService.Result found = null;
+        boolean networkProblem = false;
 
-        if (metadataResult.status == BookMetadataService.Status.SUCCESS) {
-            repository.replaceAutoTags(bookId, metadataResult.tags);
+        try {
+            if (isbn != null) {
+                BookMetadataService.Result r = service.fetchAndNormalizeTags(
+                        null, null, isbn, apiKey, packageName, cert);
+                if (r.status == BookMetadataService.Status.SUCCESS) found = r;
+                else if (r.status == BookMetadataService.Status.NETWORK_ERROR) networkProblem = true;
+            }
+
+            for (FilenameParser.Candidate c : candidates) {
+                if (found != null) break;
+                BookMetadataService.Result r = service.fetchAndNormalizeTags(
+                        c.title, c.authors, null, apiKey, packageName, cert);
+                if (r.status == BookMetadataService.Status.SUCCESS) found = r;
+                else if (r.status == BookMetadataService.Status.NETWORK_ERROR) networkProblem = true;
+            }
+        } catch (Exception e) {
+            // Bad JSON, unexpected response, anything else: treat as a failed attempt.
+            networkProblem = true;
+        }
+
+        if (found != null) {
+            repository.replaceAutoTagsSync(bookId, found.tags);
+
+            // The file name was all we had. Replace it with the catalogue title/author.
+            if (!authorKnown
+                    && found.matchedTitle != null && !found.matchedTitle.trim().isEmpty()
+                    && !found.matchedAuthors.isEmpty()) {
+                repository.updateTitleAuthorSync(
+                        bookId,
+                        found.matchedTitle.trim(),
+                        android.text.TextUtils.join(", ", found.matchedAuthors));
+            }
+
             repository.updateTagStatusSync(bookId, "DONE", book.tagAttempts);
             return Result.success();
-        } else if (metadataResult.status == BookMetadataService.Status.NOT_FOUND) {
+        }
+
+        if (!networkProblem) {
             repository.updateTagStatusSync(bookId, "NOT_FOUND", book.tagAttempts);
             return Result.success();
-        } else {
-            int newAttempts = book.tagAttempts + 1;
-            repository.updateTagStatusSync(bookId, "FAILED", newAttempts);
-            if (newAttempts < 3) {
-                return Result.retry();
-            } else {
-                return Result.failure();
-            }
         }
+
+        int newAttempts = book.tagAttempts + 1;
+        repository.updateTagStatusSync(bookId, "FAILED", newAttempts);
+        return newAttempts < 3 ? Result.retry() : Result.failure();
     }
 }
