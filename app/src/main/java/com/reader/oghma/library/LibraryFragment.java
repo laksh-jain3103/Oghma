@@ -34,6 +34,7 @@ import com.reader.oghma.BuildConfig;
 import com.reader.oghma.R;
 import com.reader.oghma.api.GoogleBooksClient;
 import com.reader.oghma.api.model.GoogleBooksResponse;
+import com.reader.oghma.api.model.GoogleBookItem;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.reader.HighlightDialog;
 import com.reader.oghma.reader.ReaderFragment;
@@ -41,6 +42,12 @@ import com.reader.oghma.settings.SettingsFragment;
 import com.reader.oghma.data.entity.Progress;
 import com.reader.oghma.data.repository.ProgressRepository;
 import com.reader.oghma.search.GoogleBooksAdapter;
+import com.reader.oghma.search.UnifiedBookItem;
+import com.reader.oghma.api.GutendexClient;
+import com.reader.oghma.api.model.GutendexResponse;
+import com.reader.oghma.api.model.GutendexBook;
+import android.content.Intent;
+import android.net.Uri;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -444,7 +451,13 @@ public class LibraryFragment extends Fragment {
         googleBooksAdapter =
                 new GoogleBooksAdapter(
                         book -> {
-                            downloadGoogleBook(book);
+                            if (book.source == UnifiedBookItem.Source.GUTENBERG || book.isDownloadable) {
+                                downloadUnifiedBook(book);
+                            } else if (book.previewUrl != null && !book.previewUrl.isEmpty()) {
+                                openGoogleBooksPreview(book.previewUrl);
+                            } else {
+                                Toast.makeText(requireContext(), "This book is not available for download or preview.", Toast.LENGTH_SHORT).show();
+                            }
                         }
                 );
 
@@ -2122,6 +2135,33 @@ public class LibraryFragment extends Fragment {
         );
     }
 
+    private void openGoogleBooksPreview(String url) {
+        if (url == null || url.isEmpty()) return;
+        if (url.startsWith("http://")) {
+            url = url.replaceFirst("http://", "https://");
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            startActivity(intent);
+        } catch (Exception e) {
+            Toast.makeText(requireContext(), "Could not open preview", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void downloadUnifiedBook(UnifiedBookItem book) {
+        String downloadUrl = book.downloadUrl;
+        if (downloadUrl == null || downloadUrl.isEmpty()) {
+            Toast.makeText(requireContext(), "This book is not available for download.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String title = book.title != null ? book.title : "Unknown book";
+        String author = book.author != null ? book.author : "Unknown author";
+        String fileName = createSafeBookFileName(title, ".epub");
+
+        downloadGoogleBookFromUrl(downloadUrl, fileName, "epub", title, author, book.gutendexBook != null ? String.valueOf(book.gutendexBook.id) : (book.googleBookItem != null ? book.googleBookItem.id : "unified"));
+    }
+
     private void searchGoogleBooks(String query) {
 
         googleBooksProgress.setVisibility(
@@ -2132,265 +2172,207 @@ public class LibraryFragment extends Fragment {
                 View.GONE
         );
 
-        String titleQuery = "intitle:" + query;
+        List<GoogleBookItem> googleBooksList = new ArrayList<>();
+        List<GutendexBook> gutendexBooksList = new ArrayList<>();
 
+        final boolean[] googleFinished = {false};
+        final boolean[] gutendexFinished = {false};
+
+        Runnable checkComplete = () -> {
+            if (googleFinished[0] && gutendexFinished[0]) {
+                if (!isAdded()) return;
+                googleBooksProgress.setVisibility(View.GONE);
+                processCombinedResults(googleBooksList, gutendexBooksList);
+            }
+        };
+
+        // 1. Fetch Google Books (with pagination up to 80 items)
+        fetchGoogleBooksPages(query, 0, 40, googleBooksList, () -> {
+            googleFinished[0] = true;
+            checkComplete.run();
+        });
+
+        // 2. Fetch Gutendex Books
+        GutendexClient.getApi().searchBooks(query).enqueue(new Callback<GutendexResponse>() {
+            @Override
+            public void onResponse(@NonNull Call<GutendexResponse> call, @NonNull Response<GutendexResponse> response) {
+                if (!isAdded()) return;
+                if (response.isSuccessful() && response.body() != null && response.body().results != null) {
+                    gutendexBooksList.addAll(response.body().results);
+                }
+                gutendexFinished[0] = true;
+                checkComplete.run();
+            }
+
+            @Override
+            public void onFailure(@NonNull Call<GutendexResponse> call, @NonNull Throwable t) {
+                if (!isAdded()) return;
+                gutendexFinished[0] = true;
+                checkComplete.run();
+            }
+        });
+    }
+
+    private void fetchGoogleBooksPages(String query, int startIndex, int maxResults, List<GoogleBookItem> accumulated, Runnable onComplete) {
         GoogleBooksClient.getApi()
                 .searchBooks(
-                        titleQuery,
+                        query,
                         BuildConfig.GOOGLE_BOOKS_API_KEY,
                         BuildConfig.APPLICATION_ID,
                         BuildConfig.GOOGLE_BOOKS_CERT,
-                        "full",
-                        "epub"
+                        maxResults,
+                        startIndex
                 )
                 .enqueue(new Callback<GoogleBooksResponse>() {
-
                     @Override
-                    public void onResponse(
-                            @NonNull Call<GoogleBooksResponse> call,
-                            @NonNull Response<GoogleBooksResponse> response
-                    ) {
-
+                    public void onResponse(@NonNull Call<GoogleBooksResponse> call, @NonNull Response<GoogleBooksResponse> response) {
                         if (!isAdded()) {
+                            onComplete.run();
                             return;
                         }
 
-                        googleBooksProgress.setVisibility(
-                                View.GONE
-                        );
-
-                        if (!response.isSuccessful()
-                                || response.body() == null) {
-
-                            Toast.makeText(
-                                    requireContext(),
-                                    "Google Books search failed",
-                                    Toast.LENGTH_SHORT
-                            ).show();
-
-                            googleBooksEmptyText.setVisibility(
-                                    View.VISIBLE
-                            );
-
+                        if (!response.isSuccessful() || response.body() == null) {
+                            onComplete.run();
                             return;
                         }
 
-                        List<com.reader.oghma.api.model.GoogleBookItem> rawItems =
-                                response.body().items;
-
-                        List<com.reader.oghma.api.model.GoogleBookItem> filteredItems =
-                                new ArrayList<>();
-
-                        if (rawItems != null) {
-                            for (com.reader.oghma.api.model.GoogleBookItem item : rawItems) {
-                                if (item == null) continue;
-
-                                // Filter conditions
-                                if (item.accessInfo != null
-                                        && item.accessInfo.publicDomain
-                                        && "ALL_PAGES".equals(item.accessInfo.viewability)
-                                        && item.accessInfo.epub != null
-                                        && item.accessInfo.epub.isAvailable
-                                        && item.accessInfo.epub.downloadLink != null
-                                        && !item.accessInfo.epub.downloadLink.isEmpty()) {
-
-                                    filteredItems.add(item);
+                        GoogleBooksResponse body = response.body();
+                        if (body.items != null) {
+                            for (GoogleBookItem item : body.items) {
+                                if (item != null) {
+                                    accumulated.add(item);
                                 }
-
-                                // Diagnostic Logging
-                                String title = (item.volumeInfo != null) ? item.volumeInfo.title : "null";
-                                String volumeId = (item.id != null) ? item.id : "null";
-                                
-                                Log.d("GoogleBooksDebug", "Title: " + title);
-                                Log.d("GoogleBooksDebug", "Volume ID: " + volumeId);
-
-                                if (item.accessInfo != null) {
-                                    com.reader.oghma.api.model.GoogleBookItem.AccessInfo access = item.accessInfo;
-                                    Log.d("GoogleBooksDebug", "Country: " + access.country);
-                                    Log.d("GoogleBooksDebug", "publicDomain: " + access.publicDomain);
-                                    Log.d("GoogleBooksDebug", "viewability: " + access.viewability);
-                                    Log.d("GoogleBooksDebug", "accessViewStatus: " + access.accessViewStatus);
-                                    Log.d("GoogleBooksDebug", "explicitOfflineLicenseManagement: " + access.explicitOfflineLicenseManagement);
-
-                                    if (access.epub != null) {
-                                        Log.d("GoogleBooksDebug", "EPUB:");
-                                        Log.d("GoogleBooksDebug", " - isAvailable: " + access.epub.isAvailable);
-                                        Log.d("GoogleBooksDebug", " - downloadLink: " + access.epub.downloadLink);
-                                        Log.d("GoogleBooksDebug", " - acsTokenLink: " + access.epub.acsTokenLink);
-                                    }
-
-                                    if (access.pdf != null) {
-                                        Log.d("GoogleBooksDebug", "PDF:");
-                                        Log.d("GoogleBooksDebug", " - isAvailable: " + access.pdf.isAvailable);
-                                        Log.d("GoogleBooksDebug", " - downloadLink: " + access.pdf.downloadLink);
-                                        Log.d("GoogleBooksDebug", " - acsTokenLink: " + access.pdf.acsTokenLink);
-                                    }
-
-                                    if (access.downloadAccess != null) {
-                                        Log.d("GoogleBooksDebug", "downloadAccess:");
-                                        Log.d("GoogleBooksDebug", " - restricted: " + access.downloadAccess.restricted);
-                                        Log.d("GoogleBooksDebug", " - deviceAllowed: " + access.downloadAccess.deviceAllowed);
-                                        Log.d("GoogleBooksDebug", " - justAcquired: " + access.downloadAccess.justAcquired);
-                                        Log.d("GoogleBooksDebug", " - maxDownloadDevices: " + access.downloadAccess.maxDownloadDevices);
-                                        Log.d("GoogleBooksDebug", " - downloadsAcquired: " + access.downloadAccess.downloadsAcquired);
-                                        Log.d("GoogleBooksDebug", " - source: " + access.downloadAccess.source);
-                                        Log.d("GoogleBooksDebug", " - reasonCode: " + access.downloadAccess.reasonCode);
-                                        Log.d("GoogleBooksDebug", " - message: " + access.downloadAccess.message);
-                                        Log.d("GoogleBooksDebug", " - signature: " + access.downloadAccess.signature);
-                                    }
-                                }
-                                Log.d("GoogleBooksDebug", "-----------------------------------");
                             }
                         }
 
-                        Log.d("GoogleBooks", "Search result summary:");
-                        Log.d("GoogleBooks", "Original query: " + query);
-                        Log.d("GoogleBooks", "API results count: " + (rawItems != null ? rawItems.size() : 0));
-                        Log.d("GoogleBooks", "Downloadable public-domain count: " + filteredItems.size());
-
-                        googleBooksAdapter.setBooks(filteredItems);
-
-                        if (filteredItems.isEmpty()) {
-
-                            googleBooksEmptyText.setVisibility(
-                                    View.VISIBLE
-                            );
-
-                            if (googleBooksEmptyText instanceof android.widget.TextView) {
-                                ((android.widget.TextView) googleBooksEmptyText)
-                                        .setText("No downloadable public-domain books found");
-                            }
-
+                        int nextIndex = startIndex + maxResults;
+                        if (nextIndex < body.totalItems && nextIndex < 80 && body.items != null && !body.items.isEmpty()) {
+                            fetchGoogleBooksPages(query, nextIndex, maxResults, accumulated, onComplete);
                         } else {
-
-                            googleBooksEmptyText.setVisibility(
-                                    View.GONE
-                            );
+                            onComplete.run();
                         }
                     }
 
                     @Override
-                    public void onFailure(
-                            @NonNull Call<GoogleBooksResponse> call,
-                            @NonNull Throwable t
-                    ) {
-
-                        if (!isAdded()) {
-                            return;
-                        }
-
-                        googleBooksProgress.setVisibility(
-                                View.GONE
-                        );
-
-                        googleBooksEmptyText.setVisibility(
-                                View.VISIBLE
-                        );
-
-                        if (googleBooksEmptyText instanceof android.widget.TextView) {
-                            ((android.widget.TextView) googleBooksEmptyText)
-                                    .setText("Could not connect to Google Books");
-                        }
-
-                        Log.e(
-                                "GoogleBooks",
-                                "Search failed",
-                                t
-                        );
-
-                        Toast.makeText(
-                                requireContext(),
-                                "Could not connect to Google Books",
-                                Toast.LENGTH_SHORT
-                        ).show();
+                    public void onFailure(@NonNull Call<GoogleBooksResponse> call, @NonNull Throwable t) {
+                        onComplete.run();
                     }
                 });
     }
 
-    private void downloadGoogleBook(com.reader.oghma.api.model.GoogleBookItem book) {
+    private void processCombinedResults(List<GoogleBookItem> googleItems, List<GutendexBook> gutendexItems) {
+        List<UnifiedBookItem> unifiedList = new ArrayList<>();
+        List<String> seenNormalizedKeys = new ArrayList<>();
 
-        if (book.volumeInfo == null || book.accessInfo == null) {
+        // Process Gutendex first (prefer verified Gutenberg EPUB download)
+        if (gutendexItems != null) {
+            for (GutendexBook gBook : gutendexItems) {
+                if (gBook == null) continue;
+                if (gBook.copyright != null && gBook.copyright) continue;
 
-            Toast.makeText(
-                    requireContext(),
-                    "This book is not available for download.",
-                    Toast.LENGTH_SHORT
-            ).show();
+                String epubUrl = gBook.getEpubDownloadUrl();
+                if (epubUrl == null || epubUrl.isEmpty()) continue;
 
-            return;
+                UnifiedBookItem item = new UnifiedBookItem();
+                item.source = UnifiedBookItem.Source.GUTENBERG;
+                item.title = gBook.title != null ? gBook.title : "Unknown title";
+                
+                String authorStr = "Unknown author";
+                if (gBook.authors != null && !gBook.authors.isEmpty()) {
+                    List<String> names = new ArrayList<>();
+                    for (GutendexBook.Author a : gBook.authors) {
+                        if (a != null && a.name != null) names.add(a.name);
+                    }
+                    if (!names.isEmpty()) authorStr = String.join(", ", names);
+                }
+                item.author = authorStr;
+                item.publishedDate = "";
+                item.coverUrl = gBook.getCoverUrl();
+                item.isDownloadable = true;
+                item.downloadUrl = epubUrl;
+                item.gutendexBook = gBook;
+
+                String normKey = normalizeTitleAuthor(item.title, item.author);
+                seenNormalizedKeys.add(normKey);
+                unifiedList.add(item);
+            }
         }
 
-        String downloadUrl = null;
-        String format = null;
-        String extension = null;
+        // Process Google Books items
+        if (googleItems != null) {
+            for (GoogleBookItem gbItem : googleItems) {
+                if (gbItem == null || gbItem.volumeInfo == null) continue;
 
-        com.reader.oghma.api.model.GoogleBookItem.AccessInfo accessInfo =
-                book.accessInfo;
+                String title = gbItem.volumeInfo.title != null ? gbItem.volumeInfo.title : "Unknown title";
+                String author = "Unknown author";
+                if (gbItem.volumeInfo.authors != null && !gbItem.volumeInfo.authors.isEmpty()) {
+                    author = String.join(", ", gbItem.volumeInfo.authors);
+                }
 
-        if (
-                accessInfo.epub != null
-                        && accessInfo.epub.isAvailable
-                        && accessInfo.epub.downloadLink != null
-                        && !accessInfo.epub.downloadLink.isEmpty()
-        ) {
+                String normKey = normalizeTitleAuthor(title, author);
 
-            format = "epub";
+                boolean isDuplicate = false;
+                for (String seenKey : seenNormalizedKeys) {
+                    if (seenKey.equals(normKey) || seenKey.contains(normKey) || normKey.contains(seenKey)) {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
 
-            extension = ".epub";
+                if (isDuplicate) {
+                    continue;
+                }
 
-            downloadUrl = accessInfo.epub.downloadLink;
+                UnifiedBookItem item = new UnifiedBookItem();
+                item.source = UnifiedBookItem.Source.GOOGLE_BOOKS;
+                item.title = title;
+                item.author = author;
+                item.publishedDate = gbItem.volumeInfo.publishedDate != null ? gbItem.volumeInfo.publishedDate : "";
+                
+                if (gbItem.volumeInfo.imageLinks != null) {
+                    item.coverUrl = gbItem.volumeInfo.imageLinks.thumbnail != null ? gbItem.volumeInfo.imageLinks.thumbnail : gbItem.volumeInfo.imageLinks.smallThumbnail;
+                }
 
-        } else if (
-                accessInfo.pdf != null
-                        && accessInfo.pdf.isAvailable
-                        && accessInfo.pdf.downloadLink != null
-                        && !accessInfo.pdf.downloadLink.isEmpty()
-        ) {
+                boolean gbDownloadable = gbItem.accessInfo != null
+                        && gbItem.accessInfo.publicDomain
+                        && "FULL_PUBLIC_DOMAIN".equals(gbItem.accessInfo.accessViewStatus)
+                        && gbItem.accessInfo.epub != null
+                        && gbItem.accessInfo.epub.isAvailable
+                        && gbItem.accessInfo.epub.downloadLink != null
+                        && !gbItem.accessInfo.epub.downloadLink.isEmpty();
 
-            format = "pdf";
+                item.isDownloadable = gbDownloadable;
+                if (gbDownloadable) {
+                    item.downloadUrl = gbItem.accessInfo.epub.downloadLink;
+                }
 
-            extension = ".pdf";
+                if (gbItem.accessInfo != null && gbItem.accessInfo.webReaderLink != null) {
+                    item.previewUrl = gbItem.accessInfo.webReaderLink;
+                }
 
-            downloadUrl = accessInfo.pdf.downloadLink;
+                item.googleBookItem = gbItem;
+                seenNormalizedKeys.add(normKey);
+                unifiedList.add(item);
+            }
         }
 
-        if (downloadUrl == null) {
+        googleBooksAdapter.setBooks(unifiedList);
 
-            Toast.makeText(
-                    requireContext(),
-                    "This book is not available for download.",
-                    Toast.LENGTH_SHORT
-            ).show();
-
-            return;
-        }
-
-        String title =
-                book.volumeInfo.title != null
-                        ? book.volumeInfo.title
-                        : "Unknown book";
-
-        String author;
-
-        if (
-                book.volumeInfo.authors != null
-                        && !book.volumeInfo.authors.isEmpty()
-        ) {
-
-            author = String.join(", ", book.volumeInfo.authors);
-
+        if (unifiedList.isEmpty()) {
+            googleBooksEmptyText.setVisibility(View.VISIBLE);
+            if (googleBooksEmptyText instanceof android.widget.TextView) {
+                ((android.widget.TextView) googleBooksEmptyText)
+                        .setText("No books or previews found");
+            }
         } else {
-
-            author = "Unknown author";
+            googleBooksEmptyText.setVisibility(View.GONE);
         }
+    }
 
-        String fileName =
-                createSafeBookFileName(
-                        title,
-                        extension
-                );
-
-        downloadGoogleBookFromUrl(downloadUrl, fileName, format, title, author, book.id);
+    private String normalizeTitleAuthor(String title, String author) {
+        String t = title == null ? "" : title.toLowerCase().replaceAll("[^a-z0-9]", "");
+        String a = author == null ? "" : author.toLowerCase().replaceAll("[^a-z0-9]", "");
+        return t + "_" + a;
     }
 
     private void downloadGoogleBookFromUrl(
@@ -2529,36 +2511,6 @@ public class LibraryFragment extends Fragment {
 
                             if (previewText.contains("<!DOCTYPE html>") || previewText.contains("<html>")) {
                                 Log.e("GoogleBooksDownload", "The server returned an HTML page instead of an EPUB.");
-
-                                String fallbackUrl = null;
-                                if (!finalDownloadUrl.contains("gutenberg.org")) {
-                                    if ("Alice's Adventures in Wonderland".equalsIgnoreCase(finalTitle)) {
-                                        fallbackUrl = "https://www.gutenberg.org/cache/epub/11/pg11-images.epub";
-                                    } else if ("The War of the Worlds".equalsIgnoreCase(finalTitle) && finalAuthor.toLowerCase().contains("wells")) {
-                                        fallbackUrl = "https://www.gutenberg.org/cache/epub/36/pg36-images.epub";
-                                    } else if ("The Picture of Dorian Gray".equalsIgnoreCase(finalTitle) && finalAuthor.toLowerCase().contains("wilde")) {
-                                        fallbackUrl = "https://www.gutenberg.org/cache/epub/26740/pg26740-images.epub";
-                                    }
-                                }
-
-                                if (fallbackUrl != null) {
-                                    Toast.makeText(requireContext(),
-                                            "Google Books download unavailable. Downloading public-domain EPUB...",
-                                            Toast.LENGTH_LONG).show();
-
-                                    downloadGoogleBookFromUrl(
-                                            fallbackUrl,
-                                            fileName,
-                                            finalFormat,
-                                            finalTitle,
-                                            finalAuthor,
-                                            volumeId
-                                    );
-
-                                    if (tempFile.exists()) tempFile.delete();
-                                    return;
-                                }
-
                                 Toast.makeText(requireContext(), 
                                         "Google Books returned a web page instead of an EPUB. This volume requires Google Books download authorization.", 
                                         Toast.LENGTH_LONG).show();

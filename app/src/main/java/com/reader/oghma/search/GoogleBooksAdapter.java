@@ -3,7 +3,6 @@ package com.reader.oghma.search;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -12,7 +11,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.reader.oghma.R;
-import com.reader.oghma.api.model.GoogleBookItem;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,10 +19,10 @@ public class GoogleBooksAdapter
         extends RecyclerView.Adapter<GoogleBooksAdapter.BookViewHolder> {
 
     public interface OnBookClickListener {
-        void onBookClick(GoogleBookItem book);
+        void onBookClick(UnifiedBookItem book);
     }
 
-    private final List<GoogleBookItem> books =
+    private final List<UnifiedBookItem> books =
             new ArrayList<>();
 
     private final OnBookClickListener listener;
@@ -36,7 +34,7 @@ public class GoogleBooksAdapter
     }
 
     public void setBooks(
-            List<GoogleBookItem> newBooks
+            List<UnifiedBookItem> newBooks
     ) {
 
         books.clear();
@@ -73,39 +71,16 @@ public class GoogleBooksAdapter
             int position
     ) {
 
-        GoogleBookItem book =
+        UnifiedBookItem book =
                 books.get(position);
-
-        if (book.volumeInfo == null) {
-
-            holder.title.setText(
-                    "Unknown title"
-            );
-
-            holder.author.setText(
-                    "Unknown author"
-            );
-
-            holder.publishedDate.setText("");
-
-            holder.cover.setImageResource(
-                    android.R.drawable.ic_menu_gallery
-            );
-
-            holder.itemView.setOnClickListener(
-                    null
-            );
-
-            return;
-        }
 
         // -----------------------------
         // Title
         // -----------------------------
 
         holder.title.setText(
-                book.volumeInfo.title != null
-                        ? book.volumeInfo.title
+                book.title != null && !book.title.isEmpty()
+                        ? book.title
                         : "Unknown title"
         );
 
@@ -114,24 +89,11 @@ public class GoogleBooksAdapter
         // Author
         // -----------------------------
 
-        if (
-                book.volumeInfo.authors != null
-                        && !book.volumeInfo.authors.isEmpty()
-        ) {
-
-            holder.author.setText(
-                    String.join(
-                            ", ",
-                            book.volumeInfo.authors
-                    )
-            );
-
-        } else {
-
-            holder.author.setText(
-                    "Unknown author"
-            );
-        }
+        holder.author.setText(
+                book.author != null && !book.author.isEmpty()
+                        ? book.author
+                        : "Unknown author"
+        );
 
 
         // -----------------------------
@@ -139,12 +101,12 @@ public class GoogleBooksAdapter
         // -----------------------------
 
         if (
-                book.volumeInfo.publishedDate != null
-                        && !book.volumeInfo.publishedDate.isEmpty()
+                book.publishedDate != null
+                        && !book.publishedDate.isEmpty()
         ) {
 
             holder.publishedDate.setText(
-                    book.volumeInfo.publishedDate
+                    book.publishedDate
             );
 
         } else {
@@ -154,38 +116,33 @@ public class GoogleBooksAdapter
 
 
         // -----------------------------
-        // Cover
+        // Source & Status
         // -----------------------------
 
-        String coverUrl = null;
-
-        if (
-                book.volumeInfo.imageLinks != null
-        ) {
-
-            coverUrl =
-                    book.volumeInfo.imageLinks.thumbnail;
-
-            if (
-                    coverUrl == null
-                            || coverUrl.isEmpty()
-            ) {
-
-                coverUrl =
-                        book.volumeInfo.imageLinks
-                                .smallThumbnail;
+        if (book.source == UnifiedBookItem.Source.GUTENBERG) {
+            holder.sourceStatus.setText("Project Gutenberg • Downloadable EPUB");
+            holder.sourceStatus.setTextColor(0xFF00C853); // Greenish
+        } else {
+            if (book.isDownloadable) {
+                holder.sourceStatus.setText("Google Books • Downloadable EPUB");
+                holder.sourceStatus.setTextColor(0xFF00C853);
+            } else {
+                holder.sourceStatus.setText("Google Books • Preview Only");
+                holder.sourceStatus.setTextColor(0xFFA6ADC8); // Secondary text color
             }
         }
 
+
+        // -----------------------------
+        // Cover
+        // -----------------------------
+
+        String coverUrl = book.coverUrl;
 
         if (
                 coverUrl != null
                         && !coverUrl.isEmpty()
         ) {
-
-            // Google Books commonly returns HTTP
-            // thumbnail URLs. Glide can load HTTPS
-            // directly, so upgrade HTTP to HTTPS.
 
             if (coverUrl.startsWith("http://")) {
 
@@ -244,6 +201,7 @@ public class GoogleBooksAdapter
         final TextView title;
         final TextView author;
         final TextView publishedDate;
+        final TextView sourceStatus;
 
         BookViewHolder(
                 @NonNull View itemView
@@ -269,6 +227,11 @@ public class GoogleBooksAdapter
             publishedDate =
                     itemView.findViewById(
                             R.id.bookPublishedDate
+                    );
+
+            sourceStatus =
+                    itemView.findViewById(
+                            R.id.bookSourceStatus
                     );
         }
     }

@@ -18,8 +18,8 @@ public interface GoogleBooksApi {
             @Query("key") String apiKey,
             @Header("X-Android-Package") String packageName,
             @Header("X-Android-Cert") String certificate,
-            @Query("filter") String filter,
-            @Query("download") String download
+            @Query("maxResults") int maxResults,
+            @Query("startIndex") int startIndex
     );
 
     @Streaming
