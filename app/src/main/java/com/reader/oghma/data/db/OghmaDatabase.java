@@ -30,8 +30,8 @@ import com.reader.oghma.data.entity.Tag;
                 Tag.class,
                 BookTag.class
         },
-        version = 4,
-        exportSchema = false
+        version = 5,
+        exportSchema = true
 )
 public abstract class OghmaDatabase
         extends RoomDatabase {
@@ -153,6 +153,100 @@ public abstract class OghmaDatabase
             };
 
 
+    /*
+     * Version 4 → Version 5
+     *
+     * Adds tagStatus and tagAttempts to Book.
+     * Rebuilds Tag to add normalizedName with UNIQUE index.
+     * Rebuilds BookTag to add foreign keys, tagId index, and source column.
+     * Preserves and dedupes all existing data.
+     */
+    private static final Migration MIGRATION_4_5 =
+            new Migration(4, 5) {
+
+                @Override
+                public void migrate(
+                        @NonNull SupportSQLiteDatabase database
+                ) {
+
+                    database.execSQL(
+                            "ALTER TABLE `Book` " +
+                                    "ADD COLUMN `tagStatus` TEXT NOT NULL DEFAULT 'PENDING'"
+                    );
+
+                    database.execSQL(
+                            "ALTER TABLE `Book` " +
+                                    "ADD COLUMN `tagAttempts` INTEGER NOT NULL DEFAULT 0"
+                    );
+
+                    database.execSQL(
+                            "CREATE TABLE IF NOT EXISTS `Tag_new` (" +
+                                    "`tagId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                                    "`name` TEXT, " +
+                                    "`normalizedName` TEXT)"
+                    );
+
+                    android.database.Cursor cursor = database.query("SELECT `tagId`, `name` FROM `Tag`");
+                    java.util.Map<Integer, Integer> tagMap = new java.util.HashMap<>();
+                    java.util.Map<String, Integer> normalizedToCanonical = new java.util.HashMap<>();
+
+                    if (cursor != null) {
+                        while (cursor.moveToNext()) {
+                            int oldTagId = cursor.getInt(0);
+                            String name = cursor.getString(1);
+                            String normalized = name != null ? name.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT) : "";
+                            if (normalizedToCanonical.containsKey(normalized)) {
+                                tagMap.put(oldTagId, normalizedToCanonical.get(normalized));
+                            } else {
+                                android.content.ContentValues cv = new android.content.ContentValues();
+                                cv.put("name", name);
+                                cv.put("normalizedName", normalized);
+                                long newId = database.insert("Tag_new", android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE, cv);
+                                int canonicalId = (newId != -1) ? (int) newId : oldTagId;
+                                normalizedToCanonical.put(normalized, canonicalId);
+                                tagMap.put(oldTagId, canonicalId);
+                            }
+                        }
+                        cursor.close();
+                    }
+
+                    database.execSQL("DROP TABLE `Tag`");
+                    database.execSQL("ALTER TABLE `Tag_new` RENAME TO `Tag`");
+                    database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_Tag_normalizedName` ON `Tag` (`normalizedName`)");
+
+                    database.execSQL(
+                            "CREATE TABLE IF NOT EXISTS `BookTag_new` (" +
+                                    "`bookId` INTEGER NOT NULL, " +
+                                    "`tagId` INTEGER NOT NULL, " +
+                                    "`source` TEXT NOT NULL DEFAULT 'AUTO', " +
+                                    "PRIMARY KEY(`bookId`, `tagId`), " +
+                                    "FOREIGN KEY(`bookId`) REFERENCES `Book`(`bookId`) ON DELETE CASCADE, " +
+                                    "FOREIGN KEY(`tagId`) REFERENCES `Tag`(`tagId`) ON DELETE CASCADE)"
+                    );
+
+                    android.database.Cursor btCursor = database.query("SELECT `bookId`, `tagId` FROM `BookTag`");
+                    if (btCursor != null) {
+                        while (btCursor.moveToNext()) {
+                            int bookId = btCursor.getInt(0);
+                            int oldTagId = btCursor.getInt(1);
+                            Integer canonicalTagId = tagMap.get(oldTagId);
+                            if (canonicalTagId == null) canonicalTagId = oldTagId;
+                            android.content.ContentValues cv = new android.content.ContentValues();
+                            cv.put("bookId", bookId);
+                            cv.put("tagId", canonicalTagId);
+                            cv.put("source", "USER");
+                            database.insert("BookTag_new", android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE, cv);
+                        }
+                        btCursor.close();
+                    }
+
+                    database.execSQL("DROP TABLE `BookTag`");
+                    database.execSQL("ALTER TABLE `BookTag_new` RENAME TO `BookTag`");
+                    database.execSQL("CREATE INDEX IF NOT EXISTS `index_BookTag_tagId` ON `BookTag` (`tagId`)");
+                }
+            };
+
+
     public static OghmaDatabase getInstance(
             Context context
     ) {
@@ -172,9 +266,9 @@ public abstract class OghmaDatabase
                                     .addMigrations(
                                             MIGRATION_1_2,
                                             MIGRATION_2_3,
-                                            MIGRATION_3_4
+                                            MIGRATION_3_4,
+                                            MIGRATION_4_5
                                     )
-                                    .fallbackToDestructiveMigration()
                                     .build();
                 }
             }

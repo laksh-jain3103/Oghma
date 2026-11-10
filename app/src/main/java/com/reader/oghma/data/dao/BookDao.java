@@ -14,7 +14,7 @@ import java.util.List;
 public interface BookDao {
 
     @Insert
-    void insert(Book book);
+    long insert(Book book);
 
     @Delete
     void delete(Book book);
@@ -33,4 +33,10 @@ public interface BookDao {
 
     @Query("SELECT * FROM Book WHERE bookId = :bookId")
     Book getById(int bookId);
+
+    @Query("UPDATE Book SET tagStatus = :status, tagAttempts = :attempts WHERE bookId = :bookId")
+    void updateTagStatus(int bookId, String status, int attempts);
+
+    @Query("SELECT * FROM Book WHERE tagStatus = 'PENDING'")
+    List<Book> getPendingTagBooks();
 }

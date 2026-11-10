@@ -21,6 +21,20 @@ public class GoogleBookInfo {
     @SerializedName("publishedDate")
     public String publishedDate;
 
+    @SerializedName("categories")
+    public List<String> categories;
+
+    @SerializedName("industryIdentifiers")
+    public List<IndustryIdentifier> industryIdentifiers;
+
+    public static class IndustryIdentifier {
+        @SerializedName("type")
+        public String type;
+
+        @SerializedName("identifier")
+        public String identifier;
+    }
+
     @SerializedName("imageLinks")
     public ImageLinks imageLinks;
 

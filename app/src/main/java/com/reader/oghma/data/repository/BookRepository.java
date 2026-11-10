@@ -5,15 +5,24 @@ import android.app.Application;
 import androidx.lifecycle.LiveData;
 
 import com.reader.oghma.data.dao.BookDao;
+import com.reader.oghma.data.dao.BookTagDao;
+import com.reader.oghma.data.dao.TagDao;
+import com.reader.oghma.data.dao.TagWithCount;
 import com.reader.oghma.data.db.OghmaDatabase;
 import com.reader.oghma.data.entity.Book;
+import com.reader.oghma.data.entity.BookTag;
+import com.reader.oghma.data.entity.Tag;
 
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class BookRepository {
 
     private final BookDao bookDao;
+    private final TagDao tagDao;
+    private final BookTagDao bookTagDao;
 
     private final ExecutorService executor =
             Executors.newSingleThreadExecutor();
@@ -28,8 +37,9 @@ public class BookRepository {
                         application
                 );
 
-        bookDao =
-                database.bookDao();
+        bookDao = database.bookDao();
+        tagDao = database.tagDao();
+        bookTagDao = database.bookTagDao();
     }
 
 
@@ -75,11 +85,16 @@ public class BookRepository {
             Book book
     ) {
 
-        executor.execute(() ->
-                bookDao.insert(
-                        book
-                )
-        );
+        executor.execute(() -> {
+            long id = bookDao.insert(book);
+            book.bookId = (int) id;
+        });
+    }
+
+    public long insertBookSync(Book book) {
+        long id = bookDao.insert(book);
+        book.bookId = (int) id;
+        return id;
     }
 
 
@@ -105,6 +120,25 @@ public class BookRepository {
         });
     }
 
+    public Book getBookSync(int bookId) {
+        return bookDao.getById(bookId);
+    }
+
+    public List<Book> getPendingTagBooksSync() {
+        return bookDao.getPendingTagBooks();
+    }
+
+    public void schedulePendingTagWorkers(android.content.Context context) {
+        executor.execute(() -> {
+            List<Book> pending = bookDao.getPendingTagBooks();
+            if (pending != null) {
+                for (Book b : pending) {
+                    com.reader.oghma.library.TagBookWorker.enqueue(context, b.bookId, false);
+                }
+            }
+        });
+    }
+
 
     // ---------------------------------------------------------
     // Delete book
@@ -119,6 +153,90 @@ public class BookRepository {
                         book
                 )
         );
+    }
+
+
+    // ---------------------------------------------------------
+    // Tag operations
+    // ---------------------------------------------------------
+
+    public void replaceAutoTags(int bookId, List<String> displayNames) {
+        executor.execute(() -> {
+            bookTagDao.deleteAutoLinksForBook(bookId);
+            if (displayNames != null) {
+                for (String name : displayNames) {
+                    if (name == null || name.trim().isEmpty()) continue;
+                    int tagId = getOrCreateTagIdSync(name);
+                    if (tagId > 0) {
+                        BookTag bt = new BookTag();
+                        bt.bookId = bookId;
+                        bt.tagId = tagId;
+                        bt.source = "AUTO";
+                        bookTagDao.insert(bt);
+                    }
+                }
+            }
+            tagDao.deleteUnusedTags();
+        });
+    }
+
+    public void addUserTag(int bookId, String tagName) {
+        executor.execute(() -> {
+            if (tagName == null || tagName.trim().isEmpty()) return;
+            int tagId = getOrCreateTagIdSync(tagName);
+            if (tagId > 0) {
+                BookTag bt = new BookTag();
+                bt.bookId = bookId;
+                bt.tagId = tagId;
+                bt.source = "USER";
+                bookTagDao.insert(bt);
+            }
+        });
+    }
+
+    public void removeTag(int bookId, int tagId) {
+        executor.execute(() -> {
+            bookTagDao.deleteLink(bookId, tagId);
+            tagDao.deleteUnusedTags();
+        });
+    }
+
+    public LiveData<List<Tag>> observeTagsForBook(int bookId) {
+        return bookTagDao.observeTagsForBook(bookId);
+    }
+
+    public LiveData<List<TagWithCount>> observeTagsWithCounts() {
+        return tagDao.getAllWithBookCount();
+    }
+
+    public LiveData<List<Book>> observeBooksForTag(int tagId) {
+        return bookTagDao.booksForTag(tagId);
+    }
+
+    public void updateTagStatus(int bookId, String status, int attempts) {
+        executor.execute(() -> bookDao.updateTagStatus(bookId, status, attempts));
+    }
+
+    public void updateTagStatusSync(int bookId, String status, int attempts) {
+        bookDao.updateTagStatus(bookId, status, attempts);
+    }
+
+    private int getOrCreateTagIdSync(String displayName) {
+        String trimmed = displayName.trim();
+        String normalized = trimmed.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+        Tag existing = tagDao.getByNormalizedName(normalized);
+        if (existing != null) {
+            return existing.tagId;
+        }
+        Tag tag = new Tag();
+        tag.name = trimmed;
+        tag.normalizedName = normalized;
+        long newId = tagDao.insert(tag);
+        if (newId != -1) {
+            return (int) newId;
+        }
+        Tag retry = tagDao.getByNormalizedName(normalized);
+        return retry != null ? retry.tagId : -1;
     }
 
 

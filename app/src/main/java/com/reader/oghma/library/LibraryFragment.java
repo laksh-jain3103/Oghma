@@ -249,6 +249,8 @@ public class LibraryFragment extends Fragment {
                                 LibraryViewModel.class
                         );
 
+        viewModel.getRepository().schedulePendingTagWorkers(requireContext().getApplicationContext());
+
 
         // -----------------------------------------------------
         // Find views
@@ -2320,6 +2322,8 @@ public class LibraryFragment extends Fragment {
             return;
         }
 
+        final List<String> googleCategories = book.volumeInfo.categories;
+
         String downloadUrl = null;
         String format = null;
         String extension = null;
@@ -2390,7 +2394,7 @@ public class LibraryFragment extends Fragment {
                         extension
                 );
 
-        downloadGoogleBookFromUrl(downloadUrl, fileName, format, title, author, book.id);
+        downloadGoogleBookFromUrl(downloadUrl, fileName, format, title, author, book.id, book.volumeInfo.categories);
     }
 
     private void downloadGoogleBookFromUrl(
@@ -2399,7 +2403,8 @@ public class LibraryFragment extends Fragment {
             String format,
             String title,
             String author,
-            String volumeId
+            String volumeId,
+            List<String> googleCategories
     ) {
         if (downloadUrl.startsWith("http://")) {
             downloadUrl = downloadUrl.replaceFirst("http://", "https://");
@@ -2414,6 +2419,7 @@ public class LibraryFragment extends Fragment {
         final String finalTitle = title;
         final String finalAuthor = author;
         final String finalDownloadUrl = downloadUrl;
+        final List<String> finalCategories = googleCategories;
 
         GoogleBooksClient.getApi()
                 .downloadBook(downloadUrl)
@@ -2552,7 +2558,8 @@ public class LibraryFragment extends Fragment {
                                             finalFormat,
                                             finalTitle,
                                             finalAuthor,
-                                            volumeId
+                                            volumeId,
+                                            finalCategories
                                     );
 
                                     if (tempFile.exists()) tempFile.delete();
@@ -2610,7 +2617,8 @@ public class LibraryFragment extends Fragment {
                                     fileName,
                                     finalFormat,
                                     finalTitle,
-                                    finalAuthor
+                                    finalAuthor,
+                                    finalCategories
                             );
                         } catch (java.io.FileNotFoundException e) {
                             Log.e("GoogleBooksDownload", "Could not create stream for import", e);

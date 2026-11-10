@@ -14,6 +14,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -123,7 +124,7 @@ public class BookIngestor {
                         )
                 ) {
 
-                    extractEpubCover(
+                    extractEpubDetails(
                             destination,
                             book
                     );
@@ -154,9 +155,10 @@ public class BookIngestor {
                                 "";
                     }
 
-                    repository.insertBook(
+                    long bookId = repository.insertBookSync(
                             book
                     );
+                    TagBookWorker.enqueue(context, (int) bookId, false);
 
                 } else {
 
@@ -165,9 +167,10 @@ public class BookIngestor {
 
                     book.coverPath = "";
 
-                    repository.insertBook(
+                    long bookId = repository.insertBookSync(
                             book
                     );
+                    TagBookWorker.enqueue(context, (int) bookId, false);
                 }
 
 
@@ -188,6 +191,17 @@ public class BookIngestor {
             String format,
             String title,
             String author
+    ) {
+        importDownloadedBook(inputStream, fileName, format, title, author, null);
+    }
+
+    public void importDownloadedBook(
+            InputStream inputStream,
+            String fileName,
+            String format,
+            String title,
+            String author,
+            List<String> categories
     ) {
 
         executor.execute(() -> {
@@ -264,7 +278,7 @@ public class BookIngestor {
                         )
                 ) {
 
-                    extractEpubCover(
+                    extractEpubDetails(
                             destination,
                             book
                     );
@@ -295,18 +309,43 @@ public class BookIngestor {
                                 "";
                     }
 
-                    repository.insertBook(
+                    long bookId = repository.insertBookSync(
                             book
                     );
+
+                    if (categories != null && !categories.isEmpty()) {
+                        List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
+                        if (!tags.isEmpty()) {
+                            repository.replaceAutoTags((int) bookId, tags);
+                            repository.updateTagStatusSync((int) bookId, "DONE", 0);
+                        } else {
+                            TagBookWorker.enqueue(context, (int) bookId, false);
+                        }
+                    } else {
+                        TagBookWorker.enqueue(context, (int) bookId, false);
+                    }
 
                 } else {
 
                     book.coverPath = "";
 
-                    repository.insertBook(
+                    long bookId = repository.insertBookSync(
                             book
                     );
+
+                    if (categories != null && !categories.isEmpty()) {
+                        List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
+                        if (!tags.isEmpty()) {
+                            repository.replaceAutoTags((int) bookId, tags);
+                            repository.updateTagStatusSync((int) bookId, "DONE", 0);
+                        } else {
+                            TagBookWorker.enqueue(context, (int) bookId, false);
+                        }
+                    } else {
+                        TagBookWorker.enqueue(context, (int) bookId, false);
+                    }
                 }
+
 
             } catch (IOException e) {
 
@@ -569,6 +608,49 @@ public class BookIngestor {
                 bitmap.recycle();
             }
         }
+    }
+
+    private void extractEpubDetails(
+            File epubFile,
+            Book book
+    ) {
+        File coversDirectory = new File(context.getFilesDir(), "covers");
+        if (!coversDirectory.exists()) {
+            coversDirectory.mkdirs();
+        }
+
+        String coverFileName = removeExtension(epubFile.getName()) + "_cover.jpg";
+        File coverFile = new File(coversDirectory, coverFileName);
+
+        epubReaderBridge.extractEpubDetails(
+                epubFile,
+                coverFile,
+                new EpubReaderBridge.DetailsCallback() {
+                    @Override
+                    public void onSuccess(File generatedCover, String parsedTitle, String parsedAuthor, String parsedIdentifier) {
+                        if (parsedTitle != null && !parsedTitle.trim().isEmpty()) {
+                            book.title = parsedTitle.trim();
+                        }
+                        if (parsedAuthor != null && !parsedAuthor.trim().isEmpty()) {
+                            book.author = parsedAuthor.trim();
+                        }
+                        if (generatedCover != null && generatedCover.exists()) {
+                            book.coverPath = generatedCover.getAbsolutePath();
+                        } else {
+                            book.coverPath = "";
+                        }
+                        long bookId = repository.insertBookSync(book);
+                        TagBookWorker.enqueue(context, (int) bookId, false);
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        book.coverPath = "";
+                        long bookId = repository.insertBookSync(book);
+                        TagBookWorker.enqueue(context, (int) bookId, false);
+                    }
+                }
+        );
     }
 
     private void extractEpubCover(

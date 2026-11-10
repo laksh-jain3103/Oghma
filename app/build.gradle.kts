@@ -37,6 +37,11 @@ android {
         buildConfigField("String", "GOOGLE_BOOKS_CERT", "\"${googleBooksCert}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments["room.schemaLocation"] = "$projectDir/schemas"
+            }
+        }
     }
 
     buildTypes {
@@ -67,6 +72,9 @@ dependencies {
     implementation("com.google.mlkit:language-id:17.0.6")
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
+
+    // WorkManager
+    implementation("androidx.work:work-runtime:2.9.1")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")

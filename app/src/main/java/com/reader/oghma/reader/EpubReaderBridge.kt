@@ -135,6 +135,11 @@ class EpubReaderBridge(
         )
     }
 
+    interface DetailsCallback {
+        fun onSuccess(coverFile: File?, title: String?, author: String?, identifier: String?)
+        fun onError(message: String)
+    }
+
 
     /**
      * @param initialLocatorJson Where to open the book (a saved highlight or the last reading
@@ -748,6 +753,69 @@ class EpubReaderBridge(
         }
 
         openPublication = null
+    }
+
+    fun extractEpubDetails(
+        file: File,
+        outputFile: File,
+        callback: DetailsCallback
+    ) {
+        scope.launch {
+            try {
+                if (!file.exists()) {
+                    withContext(Dispatchers.Main) {
+                        callback.onError("EPUB file does not exist:\n${file.absolutePath}")
+                    }
+                    return@launch
+                }
+
+                val assetResult = assetRetriever.retrieve(file)
+                val asset = assetResult.getOrNull()
+                if (asset == null) {
+                    withContext(Dispatchers.Main) {
+                        callback.onError("Readium returned an empty EPUB asset.")
+                    }
+                    return@launch
+                }
+
+                val publicationResult = publicationOpener.open(asset = asset, allowUserInteraction = true)
+                val publication = publicationResult.getOrNull()
+                if (publication == null) {
+                    withContext(Dispatchers.Main) {
+                        callback.onError("Readium returned an empty publication.")
+                    }
+                    return@launch
+                }
+
+                val rawTitle = publication.metadata.title
+                val authorList = publication.metadata.authors.mapNotNull { it.name }.filter { it.isNotBlank() }
+                val rawAuthor = if (authorList.isNotEmpty()) authorList.joinToString(", ") else null
+                val rawIdentifier = publication.metadata.identifier
+
+                val cover = publication.cover()
+                var savedCoverFile: File? = null
+
+                if (cover != null) {
+                    outputFile.parentFile?.mkdirs()
+                    runCatching {
+                        FileOutputStream(outputFile).use { output ->
+                            cover.compress(Bitmap.CompressFormat.JPEG, 90, output)
+                        }
+                        savedCoverFile = outputFile
+                    }
+                }
+
+                publication.close()
+
+                withContext(Dispatchers.Main) {
+                    callback.onSuccess(savedCoverFile, rawTitle, rawAuthor, rawIdentifier)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    callback.onError("Error extracting EPUB details: ${e.message}")
+                }
+            }
+        }
     }
 
     fun extractCover(
