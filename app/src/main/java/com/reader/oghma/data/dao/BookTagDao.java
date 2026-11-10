@@ -41,6 +41,13 @@ public interface BookTagDao {
 
 
     @Query(
+            "SELECT bt.bookId AS bookId, t.tagId AS tagId, t.name AS name, t.normalizedName AS normalizedName " +
+                    "FROM Tag t INNER JOIN BookTag bt ON t.tagId = bt.tagId"
+    )
+    LiveData<List<BookTagItem>> observeAllBookTags();
+
+
+    @Query(
             "SELECT b.* FROM Book b INNER JOIN BookTag bt ON b.bookId = bt.bookId " +
                     "WHERE bt.tagId = :tagId ORDER BY b.addedAt DESC"
     )

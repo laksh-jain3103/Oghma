@@ -6,6 +6,7 @@ import androidx.lifecycle.LiveData;
 
 import com.reader.oghma.data.dao.BookDao;
 import com.reader.oghma.data.dao.BookTagDao;
+import com.reader.oghma.data.dao.BookTagItem;
 import com.reader.oghma.data.dao.TagDao;
 import com.reader.oghma.data.dao.TagWithCount;
 import com.reader.oghma.data.db.OghmaDatabase;
@@ -203,6 +204,10 @@ public class BookRepository {
 
     public LiveData<List<Tag>> observeTagsForBook(int bookId) {
         return bookTagDao.observeTagsForBook(bookId);
+    }
+
+    public LiveData<List<BookTagItem>> observeAllBookTags() {
+        return bookTagDao.observeAllBookTags();
     }
 
     public LiveData<List<TagWithCount>> observeTagsWithCounts() {

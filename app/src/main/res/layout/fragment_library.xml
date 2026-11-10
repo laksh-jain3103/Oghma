@@ -76,6 +76,34 @@
 
 
         <!-- ===================================================== -->
+        <!-- Tag filter scroll view -->
+        <!-- ===================================================== -->
+
+        <HorizontalScrollView
+            android:id="@+id/tagFilterScrollView"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:visibility="gone"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/libraryHeader">
+
+            <LinearLayout
+                android:id="@+id/tagFilterContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical" />
+
+        </HorizontalScrollView>
+
+
+        <!-- ===================================================== -->
         <!-- Swipeable pages: Library / Bookmarks / Notes / Find More-->
         <!-- ===================================================== -->
 
@@ -273,7 +301,7 @@
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/libraryHeader">
+            app:layout_constraintTop_toBottomOf="@id/tagFilterScrollView">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -312,7 +340,7 @@
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/libraryHeader" />
+            app:layout_constraintTop_toBottomOf="@id/tagFilterScrollView" />
 
 
         <!-- ===================================================== -->

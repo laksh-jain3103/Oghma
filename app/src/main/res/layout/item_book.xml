@@ -72,6 +72,14 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
+            <LinearLayout
+                android:id="@+id/bookTagContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal"
+                android:visibility="gone" />
+
         </LinearLayout>
 
         <!-- More button -->

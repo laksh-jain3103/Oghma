@@ -1,11 +1,13 @@
 package com.reader.oghma.library;
 
 import android.graphics.BitmapFactory;
+import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -13,10 +15,13 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
+import com.reader.oghma.data.entity.Tag;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class BookAdapter
         extends RecyclerView.Adapter<BookAdapter.BookViewHolder> {
@@ -26,6 +31,8 @@ public class BookAdapter
 
     private final List<Book> books =
             new ArrayList<>();
+
+    private Map<Integer, List<Tag>> bookTagsMap = new HashMap<>();
 
     private boolean gridMode = false;
 
@@ -42,6 +49,15 @@ public class BookAdapter
             books.addAll(newBooks);
         }
 
+        notifyDataSetChanged();
+    }
+
+    public void setBookTags(Map<Integer, List<Tag>> map) {
+        if (map != null) {
+            this.bookTagsMap = map;
+        } else {
+            this.bookTagsMap.clear();
+        }
         notifyDataSetChanged();
     }
 
@@ -196,6 +212,29 @@ public class BookAdapter
 
 
         // -----------------------------------------------------
+        // Tags
+        // -----------------------------------------------------
+
+        List<Tag> tags = bookTagsMap.get(book.bookId);
+        holder.bookTagContainer.removeAllViews();
+        if (tags != null && !tags.isEmpty()) {
+            holder.bookTagContainer.setVisibility(View.VISIBLE);
+            int showCount = Math.min(tags.size(), 3);
+            for (int i = 0; i < showCount; i++) {
+                TextView chip = createTagChip(holder.itemView.getContext(), tags.get(i).name);
+                holder.bookTagContainer.addView(chip);
+            }
+            if (tags.size() > 3) {
+                int extra = tags.size() - 3;
+                TextView extraChip = createTagChip(holder.itemView.getContext(), "+" + extra);
+                holder.bookTagContainer.addView(extraChip);
+            }
+        } else {
+            holder.bookTagContainer.setVisibility(View.GONE);
+        }
+
+
+        // -----------------------------------------------------
         // Cover
         // -----------------------------------------------------
 
@@ -286,9 +325,28 @@ public class BookAdapter
     }
 
 
-    // =========================================================
-    // Number of books
-    // =========================================================
+    private TextView createTagChip(Context context, String text) {
+        TextView chip = new TextView(context);
+        chip.setText(text);
+        chip.setTextColor(context.getResources().getColor(R.color.text_secondary));
+        chip.setTextSize(10);
+        chip.setPadding(dpToPx(context, 6), dpToPx(context, 2), dpToPx(context, 6), dpToPx(context, 2));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.setMarginEnd(dpToPx(context, 4));
+        chip.setLayoutParams(params);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(context.getResources().getColor(R.color.surface_variant));
+        bg.setCornerRadius(dpToPx(context, 4));
+        chip.setBackground(bg);
+        return chip;
+    }
+
+    private int dpToPx(Context context, int dp) {
+        return (int) (dp * context.getResources().getDisplayMetrics().density);
+    }
 
     @Override
     public int getItemCount() {
@@ -312,6 +370,7 @@ public class BookAdapter
         TextView bookAuthor;
         TextView bookFormat;
         TextView bookPreview;
+        LinearLayout bookTagContainer;
 
 
         public BookViewHolder(
@@ -366,6 +425,13 @@ public class BookAdapter
             bookPreview =
                     itemView.findViewById(
                             R.id.bookPreview
+                    );
+
+            // Tag container
+
+            bookTagContainer =
+                    itemView.findViewById(
+                            R.id.bookTagContainer
                     );
         }
     }

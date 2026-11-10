@@ -11,8 +11,11 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -35,6 +38,7 @@ import com.reader.oghma.R;
 import com.reader.oghma.api.GoogleBooksClient;
 import com.reader.oghma.api.model.GoogleBooksResponse;
 import com.reader.oghma.data.entity.Book;
+import com.reader.oghma.data.entity.Tag;
 import com.reader.oghma.reader.HighlightDialog;
 import com.reader.oghma.reader.ReaderFragment;
 import com.reader.oghma.settings.SettingsFragment;
@@ -49,8 +53,10 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Comparator;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -161,6 +167,12 @@ public class LibraryFragment extends Fragment {
     private int sortMode = 0;
 
     private boolean sortDescending = false;
+
+    private Integer selectedTagId = null;
+    private final Map<Integer, List<Tag>> currentBookTagsMap = new HashMap<>();
+    private List<com.reader.oghma.data.dao.TagWithCount> currentTagCounts = new ArrayList<>();
+    private HorizontalScrollView tagFilterScrollView;
+    private LinearLayout tagFilterContainer;
 
 
     // =========================================================
@@ -308,6 +320,32 @@ public class LibraryFragment extends Fragment {
                 view.findViewById(
                         R.id.navigationView
                 );
+
+        tagFilterScrollView = view.findViewById(R.id.tagFilterScrollView);
+        tagFilterContainer = view.findViewById(R.id.tagFilterContainer);
+
+        viewModel.getRepository().observeAllBookTags().observe(getViewLifecycleOwner(), bookTagItems -> {
+            currentBookTagsMap.clear();
+            if (bookTagItems != null) {
+                for (com.reader.oghma.data.dao.BookTagItem item : bookTagItems) {
+                    List<Tag> list = currentBookTagsMap.computeIfAbsent(item.bookId, k -> new ArrayList<>());
+                    Tag t = new Tag();
+                    t.tagId = item.tagId;
+                    t.name = item.name;
+                    t.normalizedName = item.normalizedName;
+                    list.add(t);
+                }
+            }
+            if (adapter != null) {
+                adapter.setBookTags(currentBookTagsMap);
+            }
+            applySearch();
+        });
+
+        viewModel.getRepository().observeTagsWithCounts().observe(getViewLifecycleOwner(), tagCounts -> {
+            currentTagCounts = tagCounts != null ? tagCounts : new ArrayList<>();
+            updateTagFilterRow();
+        });
 
 
         bookBookmarksPage =
@@ -1323,6 +1361,26 @@ public class LibraryFragment extends Fragment {
         // Sort results
         // ---------------------------------------------------------
 
+        if (selectedTagId != null) {
+            List<Book> tagFiltered = new ArrayList<>();
+            for (Book book : filteredBooks) {
+                List<Tag> bookTags = currentBookTagsMap.get(book.bookId);
+                boolean hasTag = false;
+                if (bookTags != null) {
+                    for (Tag t : bookTags) {
+                        if (t.tagId == selectedTagId) {
+                            hasTag = true;
+                            break;
+                        }
+                    }
+                }
+                if (hasTag) {
+                    tagFiltered.add(book);
+                }
+            }
+            filteredBooks = tagFiltered;
+        }
+
         sortBooks(
                 filteredBooks
         );
@@ -1335,6 +1393,58 @@ public class LibraryFragment extends Fragment {
         adapter.setBooks(
                 filteredBooks
         );
+    }
+
+    private void updateTagFilterRow() {
+        if (tagFilterScrollView == null || tagFilterContainer == null) return;
+        tagFilterContainer.removeAllViews();
+        if (currentTagCounts.isEmpty()) {
+            tagFilterScrollView.setVisibility(View.GONE);
+            if (selectedTagId != null) {
+                selectedTagId = null;
+                applySearch();
+            }
+            return;
+        }
+        tagFilterScrollView.setVisibility(View.VISIBLE);
+
+        for (com.reader.oghma.data.dao.TagWithCount twc : currentTagCounts) {
+            TextView chip = new TextView(requireContext());
+            String label = twc.name + " (" + twc.bookCount + ")";
+            chip.setText(label);
+            boolean isSelected = (selectedTagId != null && selectedTagId == twc.tagId);
+            chip.setTextColor(getResources().getColor(isSelected ? R.color.primary : R.color.text_secondary));
+            chip.setTextSize(12);
+            chip.setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            params.setMarginEnd(dpToPx(8));
+            chip.setLayoutParams(params);
+
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setColor(getResources().getColor(isSelected ? R.color.surface_variant : R.color.surface));
+            bg.setStroke(dpToPx(1), getResources().getColor(isSelected ? R.color.primary : R.color.surface_variant));
+            bg.setCornerRadius(dpToPx(16));
+            chip.setBackground(bg);
+
+            chip.setOnClickListener(v -> {
+                if (selectedTagId != null && selectedTagId == twc.tagId) {
+                    selectedTagId = null;
+                } else {
+                    selectedTagId = twc.tagId;
+                }
+                updateTagFilterRow();
+                applySearch();
+            });
+
+            tagFilterContainer.addView(chip);
+        }
+    }
+
+    private int dpToPx(int dp) {
+        return (int) (dp * getResources().getDisplayMetrics().density);
     }
 
     private void sortBooks(
