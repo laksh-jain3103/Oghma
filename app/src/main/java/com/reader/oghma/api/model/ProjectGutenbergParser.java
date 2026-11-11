@@ -225,7 +225,7 @@ public final class ProjectGutenbergParser {
         // the canonical EPUB URL.
         if (book.id <= 0 && content != null) {
             Matcher idMatcher = Pattern.compile(
-                    "EBook No\\\\.:\\\\s*(\\\\d+)",
+                    "EBook No\\.:\\s*(\\d+)",
                     Pattern.CASE_INSENSITIVE
             ).matcher(content.getTextContent());
             if (idMatcher.find() && idMatcher.group(1) != null) {
