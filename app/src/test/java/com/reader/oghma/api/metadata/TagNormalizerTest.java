@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class TagNormalizerTest {
@@ -40,6 +41,36 @@ public class TagNormalizerTest {
         assertTrue(mapped.size() <= 12);
         long sciFiCount = mapped.stream().filter(t -> t.equals("Science Fiction")).count();
         assertEquals(1, sciFiCount);
+    }
+
+    @Test
+    public void testAwardHandling() {
+        List<String> raw = Arrays.asList("sci-fi", "Award:nebula_award=2015", "Hugo Award Winner");
+        List<String> mapped = TagNormalizer.map(raw);
+        assertTrue(mapped.contains("Award Winner"));
+        assertTrue(mapped.contains("Science Fiction"));
+        long awardWinnerCount = mapped.stream().filter(t -> t.equals("Award Winner")).count();
+        assertEquals(1, awardWinnerCount);
+    }
+
+    @Test
+    public void testUnmappedSubjectHeadingsAndJunkDropped() {
+        List<String> raw = Arrays.asList("Discoveries In Geography", "History of the World", "sci-fi", "Valid Tag");
+        List<String> mapped = TagNormalizer.map(raw);
+        assertFalse(mapped.contains("Discoveries In Geography"));
+        assertFalse(mapped.contains("History of the World"));
+        assertTrue(mapped.contains("Valid Tag"));
+        assertTrue(mapped.contains("Science Fiction"));
+    }
+
+    @Test
+    public void testOrderingPriority() {
+        List<String> raw = Arrays.asList("Fiction", "Custom Tag", "Cyberpunk", "Science Fiction");
+        List<String> mapped = TagNormalizer.map(raw);
+        assertEquals("Science Fiction", mapped.get(0));
+        assertEquals("Cyberpunk", mapped.get(1));
+        assertEquals("Custom Tag", mapped.get(2));
+        assertEquals("Fiction", mapped.get(3));
     }
 
     @Test

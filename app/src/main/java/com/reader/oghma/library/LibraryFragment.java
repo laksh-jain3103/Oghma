@@ -178,6 +178,12 @@ public class LibraryFragment extends Fragment {
     private List<com.reader.oghma.data.dao.TagWithCount> currentTagCounts = new ArrayList<>();
     private HorizontalScrollView tagFilterScrollView;
     private LinearLayout tagFilterContainer;
+    private TextView findMoreTagPrompt;
+    private String searchQueryLibrary = "";
+    private String searchQueryBookmarks = "";
+    private String searchQueryNotes = "";
+    private final List<Book> allBookmarkedBooks = new ArrayList<>();
+    private final List<Bookmark> allNotes = new ArrayList<>();
 
 
     // =========================================================
@@ -393,10 +399,11 @@ public class LibraryFragment extends Fragment {
                 getViewLifecycleOwner(),
                 bookmarkedBooks -> {
                     if (!isAdded()) return;
-                    bookBookmarksAdapter.setBooks(bookmarkedBooks);
-                    boolean isEmpty = bookmarkedBooks == null || bookmarkedBooks.isEmpty();
-                    bookBookmarksEmptyText.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
-                    bookBookmarksRecyclerView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
+                    allBookmarkedBooks.clear();
+                    if (bookmarkedBooks != null) {
+                        allBookmarkedBooks.addAll(bookmarkedBooks);
+                    }
+                    applyBookmarksSearch();
                 }
         );
 
@@ -607,6 +614,40 @@ public class LibraryFragment extends Fragment {
         adapter.setOnBookMoreClickListener(
                 book -> showBookMenu(book)
         );
+
+        adapter.setOnTagClickListener(tag -> {
+            libraryPager.setCurrentItem(pageIndexForNav(R.id.nav_library), true);
+            selectedTagId = tag.tagId;
+            updateTagFilterRow();
+            applySearch();
+            if (tagFilterScrollView != null) tagFilterScrollView.smoothScrollTo(0, 0);
+        });
+
+        adapter.setOnTagLongClickListener(tag -> {
+            libraryPager.setCurrentItem(pageIndexForNav(R.id.nav_find_more), true);
+            googleBooksSearchInput.setText("subject:" + tag.name);
+            searchGoogleBooks("subject:" + tag.name);
+        });
+
+        bookBookmarksAdapter.setOnTagClickListener(tag -> {
+            libraryPager.setCurrentItem(pageIndexForNav(R.id.nav_library), true);
+            selectedTagId = tag.tagId;
+            updateTagFilterRow();
+            applySearch();
+            if (tagFilterScrollView != null) tagFilterScrollView.smoothScrollTo(0, 0);
+        });
+
+        bookBookmarksAdapter.setOnTagLongClickListener(tag -> {
+            libraryPager.setCurrentItem(pageIndexForNav(R.id.nav_find_more), true);
+            googleBooksSearchInput.setText("subject:" + tag.name);
+            searchGoogleBooks("subject:" + tag.name);
+        });
+
+        googleBooksAdapter.setOnTagClickListener(tag -> {
+            libraryPager.setCurrentItem(pageIndexForNav(R.id.nav_find_more), true);
+            googleBooksSearchInput.setText("subject:" + tag);
+            searchGoogleBooks("subject:" + tag);
+        });
 
 
         // -----------------------------------------------------
@@ -1327,123 +1368,85 @@ public class LibraryFragment extends Fragment {
     // Search
     // =========================================================
 
-    private void showSearchDialog() {
-
-        final EditText searchInput =
-                new EditText(
-                        requireContext()
-                );
-
-
-        searchInput.setSingleLine(
-                true
-        );
-
-
-        searchInput.setHint(
-                "Title, author, or format"
-        );
-
-
-        searchInput.setInputType(
-                InputType.TYPE_CLASS_TEXT
-        );
-
-
-        if (!searchQuery.isEmpty()) {
-
-            searchInput.setText(
-                    searchQuery
-            );
-
-
-            searchInput.setSelection(
-                    searchInput.length()
-            );
+    private void showSearchDialogForCurrentPage(int pageIndex) {
+        String title = "Search library";
+        String hint = "Search library...";
+        String currentQuery = searchQueryLibrary;
+        if (pageIndex == PAGE_BOOKMARKS) {
+            title = "Search bookmarks";
+            hint = "Search bookmarks...";
+            currentQuery = searchQueryBookmarks;
+        } else if (pageIndex == PAGE_NOTES) {
+            title = "Search notes";
+            hint = "Search notes...";
+            currentQuery = searchQueryNotes;
         }
 
+        final EditText searchInput = new EditText(requireContext());
+        searchInput.setSingleLine(true);
+        searchInput.setHint(hint);
+        searchInput.setInputType(InputType.TYPE_CLASS_TEXT);
+        if (!currentQuery.isEmpty()) {
+            searchInput.setText(currentQuery);
+            searchInput.setSelection(currentQuery.length());
+        }
 
-        AlertDialog dialog =
-                new AlertDialog.Builder(
-                        requireContext()
-                )
-                        .setTitle(
-                                "Search library"
-                        )
-                        .setView(
-                                searchInput
-                        )
-                        .setPositiveButton(
-                                "Search",
-                                null
-                        )
-                        .setNeutralButton(
-                                "Clear",
-                                null
-                        )
-                        .setNegativeButton(
-                                "Cancel",
-                                null
-                        )
-                        .create();
+        AlertDialog dialog = new AlertDialog.Builder(requireContext())
+                .setTitle(title)
+                .setView(searchInput)
+                .setPositiveButton("Search", (d, w) -> {
+                    String q = searchInput.getText().toString().trim();
+                    if (pageIndex == PAGE_LIBRARY) {
+                        searchQueryLibrary = q;
+                        applySearch();
+                    } else if (pageIndex == PAGE_BOOKMARKS) {
+                        searchQueryBookmarks = q;
+                        applyBookmarksSearch();
+                    } else if (pageIndex == PAGE_NOTES) {
+                        searchQueryNotes = q;
+                        applyNotesSearch();
+                    }
+                    updateSearchButtonTint();
+                })
+                .setNeutralButton("Clear", (d, w) -> {
+                    if (pageIndex == PAGE_LIBRARY) {
+                        searchQueryLibrary = "";
+                        applySearch();
+                    } else if (pageIndex == PAGE_BOOKMARKS) {
+                        searchQueryBookmarks = "";
+                        applyBookmarksSearch();
+                    } else if (pageIndex == PAGE_NOTES) {
+                        searchQueryNotes = "";
+                        applyNotesSearch();
+                    }
+                    updateSearchButtonTint();
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
 
-
-        dialog.setOnShowListener(
-                ignored -> {
-
-                    dialog.getButton(
-                            AlertDialog.BUTTON_POSITIVE
-                    ).setOnClickListener(
-                            v -> {
-
-                                searchQuery =
-                                        searchInput
-                                                .getText()
-                                                .toString()
-                                                .trim();
-
-
-                                applySearch();
-
-
-                                dialog.dismiss();
-                            }
-                    );
-
-
-                    dialog.getButton(
-                            AlertDialog.BUTTON_NEUTRAL
-                    ).setOnClickListener(
-                            v -> {
-
-                                searchQuery =
-                                        "";
-
-
-                                applySearch();
-
-
-                                dialog.dismiss();
-                            }
-                    );
-
-
-                    searchInput.requestFocus();
-
-
-                    dialog.getWindow()
-                            .setSoftInputMode(
-                                    android.view.WindowManager
-                                            .LayoutParams
-                                            .SOFT_INPUT_STATE_ALWAYS_VISIBLE
-                            );
-                }
-        );
-
-
+        dialog.setOnShowListener(ignored -> {
+            searchInput.requestFocus();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            }
+        });
         dialog.show();
     }
 
+    private void updateSearchButtonTint() {
+        if (searchButton == null || libraryPager == null) return;
+        int currentItem = libraryPager.getCurrentItem();
+        String query = "";
+        if (currentItem == PAGE_LIBRARY) query = searchQueryLibrary;
+        else if (currentItem == PAGE_BOOKMARKS) query = searchQueryBookmarks;
+        else if (currentItem == PAGE_NOTES) query = searchQueryNotes;
+
+        if (query != null && !query.trim().isEmpty()) {
+            searchButton.setColorFilter(getResources().getColor(R.color.primary));
+        } else {
+            searchButton.setColorFilter(null);
+        }
+    }
 
     private void applySearch() {
 
@@ -1451,89 +1454,24 @@ public class LibraryFragment extends Fragment {
             return;
         }
 
+        List<Book> filteredBooks = new ArrayList<>();
+        String query = searchQueryLibrary != null ? searchQueryLibrary : "";
 
-        // ---------------------------------------------------------
-        // Start with the complete library
-        // ---------------------------------------------------------
-
-        List<Book> filteredBooks =
-                new ArrayList<>();
-
-
-        if (
-                searchQuery == null
-                        || searchQuery.isEmpty()
-        ) {
-
-            filteredBooks.addAll(
-                    allBooks
-            );
-
-        } else {
-
-            String query =
-                    searchQuery
-                            .toLowerCase(
-                                    Locale.ROOT
-                            );
-
-
-            // -----------------------------------------------------
-            // Search title, author, and format
-            // -----------------------------------------------------
-
-            for (Book book : allBooks) {
-
-                if (book == null) {
-                    continue;
-                }
-
-
-                String title =
-                        book.title != null
-                                ? book.title
-                                : "";
-
-
-                String author =
-                        book.author != null
-                                ? book.author
-                                : "";
-
-
-                String format =
-                        book.format != null
-                                ? book.format
-                                : "";
-
-
-                boolean matches =
-                        title.toLowerCase(
-                                Locale.ROOT
-                        ).contains(query)
-                                ||
-                                author.toLowerCase(
-                                        Locale.ROOT
-                                ).contains(query)
-                                ||
-                                format.toLowerCase(
-                                        Locale.ROOT
-                                ).contains(query);
-
-
-                if (matches) {
-
-                    filteredBooks.add(
-                            book
-                    );
+        for (Book book : allBooks) {
+            if (book == null) {
+                continue;
+            }
+            List<String> tags = new ArrayList<>();
+            List<Tag> tList = currentBookTagsMap.get(book.bookId);
+            if (tList != null) {
+                for (Tag t : tList) {
+                    if (t.name != null) tags.add(t.name);
                 }
             }
+            if (com.reader.oghma.util.BookSearchMatcher.matches(book.title, book.author, book.format, tags, query)) {
+                filteredBooks.add(book);
+            }
         }
-
-
-        // ---------------------------------------------------------
-        // Sort results
-        // ---------------------------------------------------------
 
         if (selectedTagId != null) {
             List<Book> tagFiltered = new ArrayList<>();
@@ -1555,18 +1493,88 @@ public class LibraryFragment extends Fragment {
             filteredBooks = tagFiltered;
         }
 
-        sortBooks(
-                filteredBooks
-        );
+        if (selectedTagId != null && filteredBooks.isEmpty()) {
+            selectedTagId = null;
+            updateTagFilterRow();
+            applySearch();
+            Toast.makeText(requireContext(), "Tag filter cleared because no books matched", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
+        sortBooks(filteredBooks);
+        adapter.setBooks(filteredBooks);
 
-        // ---------------------------------------------------------
-        // Show results
-        // ---------------------------------------------------------
+        boolean isEmpty = filteredBooks.isEmpty();
+        bookRecyclerView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
+        if (emptyLibrary != null) {
+            emptyLibrary.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
+        }
+    }
 
-        adapter.setBooks(
-                filteredBooks
-        );
+    private void applyBookmarksSearch() {
+        if (bookBookmarksAdapter == null) return;
+        List<Book> filtered = new ArrayList<>();
+        String query = searchQueryBookmarks != null ? searchQueryBookmarks : "";
+
+        for (Book book : allBookmarkedBooks) {
+            if (book == null) continue;
+            List<String> tags = new ArrayList<>();
+            List<Tag> tList = currentBookTagsMap.get(book.bookId);
+            if (tList != null) {
+                for (Tag t : tList) {
+                    if (t.name != null) tags.add(t.name);
+                }
+            }
+            if (com.reader.oghma.util.BookSearchMatcher.matches(book.title, book.author, book.format, tags, query)) {
+                filtered.add(book);
+            }
+        }
+        bookBookmarksAdapter.setBooks(filtered);
+        boolean isEmpty = filtered.isEmpty();
+        bookBookmarksRecyclerView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
+        if (bookBookmarksEmptyText != null) {
+            bookBookmarksEmptyText.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
+            if (isEmpty && !query.isEmpty()) {
+                if (bookBookmarksEmptyText instanceof TextView) {
+                    ((TextView) bookBookmarksEmptyText).setText("No matches for \"" + searchQueryBookmarks + "\"");
+                }
+            } else if (isEmpty) {
+                if (bookBookmarksEmptyText instanceof TextView) {
+                    ((TextView) bookBookmarksEmptyText).setText("No bookmarked books yet.\nAdd a bookmark from the book options menu.");
+                }
+            }
+        }
+    }
+
+    private void applyNotesSearch() {
+        if (bookmarkAdapter == null) return;
+        List<Bookmark> filtered = new ArrayList<>();
+        String query = searchQueryNotes != null ? searchQueryNotes : "";
+
+        for (Bookmark b : allNotes) {
+            if (b == null) continue;
+            String noteText = b.note != null ? b.note : "";
+            String chTitle = b.chapterTitle != null ? b.chapterTitle : "";
+            String selText = b.selectedText != null ? b.selectedText : "";
+            if (com.reader.oghma.util.BookSearchMatcher.matches(chTitle, noteText, selText, null, query)) {
+                filtered.add(b);
+            }
+        }
+        bookmarkAdapter.setBookmarks(filtered);
+        boolean isEmpty = filtered.isEmpty();
+        bookmarksRecyclerView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
+        if (bookmarksEmptyText != null) {
+            bookmarksEmptyText.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
+            if (isEmpty && !query.isEmpty()) {
+                if (bookmarksEmptyText instanceof TextView) {
+                    ((TextView) bookmarksEmptyText).setText("No matches for \"" + searchQueryNotes + "\"");
+                }
+            } else if (isEmpty) {
+                if (bookmarksEmptyText instanceof TextView) {
+                    ((TextView) bookmarksEmptyText).setText("No notes yet.\nSelect text while reading to highlight it.");
+                }
+            }
+        }
     }
 
     private void updateTagFilterRow() {
@@ -1829,29 +1837,16 @@ public class LibraryFragment extends Fragment {
 
         searchButton.setOnClickListener(
                 v -> {
-
-                    /*
-                     * Search only applies to the local library.
-                     *
-                     * Find More will eventually have its own
-                     * internet/source search system.
-                     */
-
-                    if (
-                            navigationView.getCheckedItem() == null
-                                    || navigationView.getCheckedItem().getItemId()
-                                    != R.id.nav_library
-                    ) {
-
-                        int index = pageIndexForNav(R.id.nav_library);
-                        libraryPager.setCurrentItem(index, true);
-                        navigationView.setCheckedItem(
-                                R.id.nav_library
-                        );
+                    int currentItem = libraryPager != null ? libraryPager.getCurrentItem() : PAGE_LIBRARY;
+                    if (currentItem == PAGE_FIND_MORE) {
+                        if (googleBooksSearchInput != null) {
+                            googleBooksSearchInput.requestFocus();
+                            android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager) requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                            if (imm != null) imm.showSoftInput(googleBooksSearchInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                        }
+                    } else {
+                        showSearchDialogForCurrentPage(currentItem);
                     }
-
-
-                    showSearchDialog();
                 }
         );
 
@@ -2224,6 +2219,7 @@ public class LibraryFragment extends Fragment {
                                     navId
                             );
                         }
+                        updateSearchButtonTint();
                     }
 
                     @Override
@@ -2353,44 +2349,11 @@ public class LibraryFragment extends Fragment {
 
                     requireActivity().runOnUiThread(
                             () -> {
-
-                                if (
-                                        bookmarks == null
-                                                || bookmarks.isEmpty()
-                                ) {
-
-                                    bookmarksRecyclerView
-                                            .setVisibility(
-                                                    View.GONE
-                                            );
-
-                                    bookmarksEmptyText
-                                            .setVisibility(
-                                                    View.VISIBLE
-                                            );
-
-                                    bookmarkAdapter
-                                            .setBookmarks(
-                                                    null
-                                            );
-
-                                    return;
+                                allNotes.clear();
+                                if (bookmarks != null) {
+                                    allNotes.addAll(bookmarks);
                                 }
-
-                                bookmarksRecyclerView
-                                        .setVisibility(
-                                                View.VISIBLE
-                                        );
-
-                                bookmarksEmptyText
-                                        .setVisibility(
-                                                View.GONE
-                                        );
-
-                                bookmarkAdapter
-                                        .setBookmarks(
-                                                bookmarks
-                                        );
+                                applyNotesSearch();
                             }
                     );
                 }

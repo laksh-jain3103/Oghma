@@ -112,6 +112,25 @@ public class BookAdapter
         this.onBookMoreClickListener = listener;
     }
 
+    public interface OnTagClickListener {
+        void onTagClick(Tag tag);
+    }
+
+    public interface OnTagLongClickListener {
+        void onTagLongClick(Tag tag);
+    }
+
+    private OnTagClickListener onTagClickListener;
+    private OnTagLongClickListener onTagLongClickListener;
+
+    public void setOnTagClickListener(OnTagClickListener listener) {
+        this.onTagClickListener = listener;
+    }
+
+    public void setOnTagLongClickListener(OnTagLongClickListener listener) {
+        this.onTagLongClickListener = listener;
+    }
+
 
     // =========================================================
     // RecyclerView view type
@@ -236,7 +255,7 @@ public class BookAdapter
                 if (availableWidth <= 0) {
                     availableWidth = holder.itemView.getWidth() - TagChipHelper.dpToPx(holder.itemView.getContext(), 48);
                 }
-                bindDynamicChips(holder.bookTagContainer, tags, availableWidth);
+                bindDynamicChips(holder.bookTagContainer, tags, availableWidth, book);
             });
         }
 
@@ -332,18 +351,41 @@ public class BookAdapter
     }
 
 
-    private void bindDynamicChips(LinearLayout container, List<Tag> tags, int availableWidth) {
+    private void bindDynamicChips(LinearLayout container, List<Tag> tags, int availableWidth, Book book) {
         container.removeAllViews();
         Context context = container.getContext();
         int margin = TagChipHelper.dpToPx(context, 4);
+
+        if (tags.size() == 1) {
+            Tag tag = tags.get(0);
+            TextView chip = TagChipHelper.createChip(context, tag.name, 11f);
+            chip.setMaxWidth(availableWidth);
+            chip.setOnClickListener(v -> {
+                if (onTagClickListener != null) onTagClickListener.onTagClick(tag);
+            });
+            chip.setOnLongClickListener(v -> {
+                if (onTagLongClickListener != null) onTagLongClickListener.onTagLongClick(tag);
+                return true;
+            });
+            container.addView(chip);
+            return;
+        }
 
         List<View> chipsToAdd = new ArrayList<>();
         int fitCount = 0;
         int usedWidth = 0;
 
         for (int i = 0; i < tags.size(); i++) {
-            TextView chip = TagChipHelper.createChip(context, tags.get(i).name, 11f);
+            Tag tag = tags.get(i);
+            TextView chip = TagChipHelper.createChip(context, tag.name, 11f);
             chip.setMaxWidth(TagChipHelper.dpToPx(context, 120));
+            chip.setOnClickListener(v -> {
+                if (onTagClickListener != null) onTagClickListener.onTagClick(tag);
+            });
+            chip.setOnLongClickListener(v -> {
+                if (onTagLongClickListener != null) onTagLongClickListener.onTagLongClick(tag);
+                return true;
+            });
             chip.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                          View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
             int w = chip.getMeasuredWidth() + margin;
@@ -362,6 +404,21 @@ public class BookAdapter
                 chipsToAdd.add(chip);
                 fitCount++;
             } else {
+                if (fitCount == 0) {
+                    TextView plusChip = TagChipHelper.createChip(context, "+" + (tags.size() - 1), 11f);
+                    plusChip.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                                     View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                    int pWidth = plusChip.getMeasuredWidth() + margin;
+
+                    int maxFirstWidth = availableWidth - pWidth - margin;
+                    int allowedWidth = Math.max(TagChipHelper.dpToPx(context, 40), maxFirstWidth);
+
+                    chip.setMaxWidth(allowedWidth);
+                    chip.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                    chipsToAdd.add(chip);
+                    fitCount = 1;
+                }
                 break;
             }
         }
@@ -373,6 +430,11 @@ public class BookAdapter
         if (fitCount < tags.size()) {
             int extra = tags.size() - fitCount;
             TextView plusChip = TagChipHelper.createChip(context, "+" + extra, 11f);
+            plusChip.setOnClickListener(v -> {
+                if (onBookMoreClickListener != null) {
+                    onBookMoreClickListener.onBookMoreClick(book);
+                }
+            });
             container.addView(plusChip);
         }
     }

@@ -5,6 +5,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -13,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.reader.oghma.R;
 import com.reader.oghma.api.model.GoogleBookItem;
+import com.reader.oghma.util.TagChipHelper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,15 +26,24 @@ public class GoogleBooksAdapter
         void onBookClick(GoogleBookItem book);
     }
 
+    public interface OnTagClickListener {
+        void onTagClick(String tag);
+    }
+
     private final List<GoogleBookItem> books =
             new ArrayList<>();
 
     private final OnBookClickListener listener;
+    private OnTagClickListener tagClickListener;
 
     public GoogleBooksAdapter(
             OnBookClickListener listener
     ) {
         this.listener = listener;
+    }
+
+    public void setOnTagClickListener(OnTagClickListener listener) {
+        this.tagClickListener = listener;
     }
 
     public void setBooks(
@@ -215,8 +226,31 @@ public class GoogleBooksAdapter
 
 
         // -----------------------------
-        // Book click
+        // Categories / Tags
         // -----------------------------
+
+        holder.bookTagContainer.removeAllViews();
+        if (book.volumeInfo.categories != null && !book.volumeInfo.categories.isEmpty()) {
+            List<String> mappedTags = com.reader.oghma.api.metadata.TagNormalizer.map(book.volumeInfo.categories);
+            if (!mappedTags.isEmpty()) {
+                holder.bookTagContainer.setVisibility(View.VISIBLE);
+                int showCount = Math.min(mappedTags.size(), 3);
+                for (int i = 0; i < showCount; i++) {
+                    String tag = mappedTags.get(i);
+                    TextView chip = TagChipHelper.createChip(holder.itemView.getContext(), tag, 11f);
+                    chip.setOnClickListener(v -> {
+                        if (tagClickListener != null) {
+                            tagClickListener.onTagClick(tag);
+                        }
+                    });
+                    holder.bookTagContainer.addView(chip);
+                }
+            } else {
+                holder.bookTagContainer.setVisibility(View.GONE);
+            }
+        } else {
+            holder.bookTagContainer.setVisibility(View.GONE);
+        }
 
         holder.itemView.setOnClickListener(
                 v -> {
@@ -244,6 +278,7 @@ public class GoogleBooksAdapter
         final TextView title;
         final TextView author;
         final TextView publishedDate;
+        final LinearLayout bookTagContainer;
 
         BookViewHolder(
                 @NonNull View itemView
@@ -269,6 +304,11 @@ public class GoogleBooksAdapter
             publishedDate =
                     itemView.findViewById(
                             R.id.bookPublishedDate
+                    );
+
+            bookTagContainer =
+                    itemView.findViewById(
+                            R.id.bookTagContainer
                     );
         }
     }

@@ -10,6 +10,7 @@ import com.reader.oghma.api.metadata.FilenameParser;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.repository.BookRepository;
 import com.reader.oghma.reader.EpubReaderBridge;
+import com.reader.oghma.util.AuthorUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -239,11 +240,7 @@ public class BookIngestor {
                                 ? title
                                 : FilenameParser.cleanTitle(fileName);
 
-                book.author =
-                        author != null
-                                && !author.trim().isEmpty()
-                                ? author
-                                : "Unknown author";
+                book.author = AuthorUtils.cleanAuthor(author);
 
                 book.filePath =
                         destination.getAbsolutePath();
@@ -626,7 +623,7 @@ public class BookIngestor {
                             book.title = parsedTitle.trim();
                         }
                         if (isUsableAuthor(parsedAuthor)) {
-                            book.author = parsedAuthor.trim();
+                            book.author = AuthorUtils.cleanAuthor(parsedAuthor);
                         }
                         if (generatedCover != null && generatedCover.exists()) {
                             book.coverPath = generatedCover.getAbsolutePath();

@@ -102,6 +102,22 @@
 
         </HorizontalScrollView>
 
+        <TextView
+            android:id="@+id/findMoreTagPrompt"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:background="@color/background_deep"
+            android:paddingStart="20dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="6dp"
+            android:textColor="@color/primary"
+            android:textSize="13sp"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tagFilterScrollView" />
+
 
         <!-- ===================================================== -->
         <!-- Swipeable pages: Library / Bookmarks / Notes / Find More-->
@@ -301,7 +317,7 @@
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tagFilterScrollView">
+            app:layout_constraintTop_toBottomOf="@id/findMoreTagPrompt">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -340,7 +356,7 @@
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tagFilterScrollView" />
+            app:layout_constraintTop_toBottomOf="@id/findMoreTagPrompt" />
 
 
         <!-- ===================================================== -->
