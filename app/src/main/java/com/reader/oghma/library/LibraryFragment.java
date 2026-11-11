@@ -2553,8 +2553,9 @@ public class LibraryFragment extends Fragment {
             return;
         }
 
+        String opdsQuery = normalizeProjectGutenbergQuery(query);
         ProjectGutenbergClient.getApi()
-                .searchBooks(query)
+                .searchBooks(opdsQuery)
                 .enqueue(new Callback<ResponseBody>() {
                     @Override
                     public void onResponse(
@@ -2634,6 +2635,21 @@ public class LibraryFragment extends Fragment {
                         onComplete.run();
                     }
                 });
+    }
+
+    private String normalizeProjectGutenbergQuery(String query) {
+        if (query == null) {
+            return "";
+        }
+
+        // Gutenberg's search guidance recommends avoiding punctuation.
+        // Remove common possessive apostrophes before stripping remaining punctuation.
+        String normalized = query.replaceAll("(?i)['’]s\\b", "")
+                .replaceAll("[^\\p{L}\\p{N}\\s]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        return normalized.isEmpty() ? query.trim() : normalized;
     }
 
     private void processCombinedResults(
