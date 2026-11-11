@@ -2321,9 +2321,9 @@ public class LibraryFragment extends Fragment {
         }
 
         GutendexClient.getApi()
-                // Gutendex filters MIME types by prefix. "application/epub" matches
-        // application/epub+zip without relying on a literal '+' in the query string.
-        .searchBooks(query, "false", "application/epub", page)
+                // Retrieve the matching catalogue records first. Copyright and EPUB
+                // eligibility are checked locally from each returned record's metadata.
+                .searchBooks(query, null, null, page)
                 .enqueue(new Callback<GutendexResponse>() {
                     @Override
                     public void onResponse(
