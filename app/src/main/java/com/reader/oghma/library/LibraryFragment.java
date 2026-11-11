@@ -2377,6 +2377,13 @@ public class LibraryFragment extends Fragment {
                                         "HTTP " + response.code()
                                 );
                             } else {
+                                if (isAdded() && requestId == searchRequestId) {
+                                    Toast.makeText(
+                                            requireContext(),
+                                            "Project Gutenberg search is temporarily unavailable. Google previews may still appear.",
+                                            Toast.LENGTH_LONG
+                                    ).show();
+                                }
                                 onComplete.run();
                             }
                             return;
@@ -2446,6 +2453,13 @@ public class LibraryFragment extends Fragment {
                                     t.getClass().getSimpleName()
                             );
                         } else {
+                            if (isAdded() && requestId == searchRequestId) {
+                                Toast.makeText(
+                                        requireContext(),
+                                        "Project Gutenberg search timed out. Google previews may still appear.",
+                                        Toast.LENGTH_LONG
+                                ).show();
+                            }
                             onComplete.run();
                         }
                     }
