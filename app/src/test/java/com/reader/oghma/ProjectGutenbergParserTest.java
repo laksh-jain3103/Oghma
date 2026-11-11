@@ -67,6 +67,34 @@ public class ProjectGutenbergParserTest {
     }
 
     @Test
+    public void buildsCanonicalEpubUrlWhenDetailHasNoAcquisitionLink() throws Exception {
+        String detailFeed =
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                + "<feed xmlns=\"http://www.w3.org/2005/Atom\">"
+                + "<entry>"
+                + "<title>Sample public-domain book</title>"
+                + "<content type=\"xhtml\"><div xmlns=\"http://www.w3.org/1999/xhtml\">"
+                + "<p>Author: Example Author</p>"
+                + "<p>EBook No.: 12345</p>"
+                + "<p>Rights: Public domain in the USA.</p>"
+                + "</div></content>"
+                + "<id>urn:gutenberg:12345:1</id>"
+                + "</entry>"
+                + "</feed>";
+
+        ProjectGutenbergBook book = ProjectGutenbergParser.parseDetail(
+                new ByteArrayInputStream(detailFeed.getBytes(StandardCharsets.UTF_8))
+        );
+
+        assertEquals(12345, book.id);
+        assertTrue(book.publicDomainInUs);
+        assertEquals(
+                "https://www.gutenberg.org/ebooks/12345.epub.images",
+                book.epubUrl
+        );
+    }
+
+    @Test
     public void testsQueryNormalization() {
         String query = "Alice's Adventures in Wonderland!";
         String normalized = query.replaceAll("(?i)['’]s\\b", "")
