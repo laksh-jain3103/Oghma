@@ -188,7 +188,10 @@ public class LibraryFragment extends Fragment {
 
     private final ExecutorService searchExecutor = Executors.newFixedThreadPool(2);
 
-    private static final int MAX_GUTENDEX_RETRIES = 1;
+    private static final int MAX_GUTENDEX_RETRIES = 3;
+    private static final int MAX_OPDS_SEARCH_RETRIES = 2;
+    private static final int MAX_OPDS_DETAIL_RETRIES = 2;
+    private static final int MAX_OPDS_DETAIL_BOOKS = 20;
 
 
     // =========================================================
@@ -2397,7 +2400,7 @@ public class LibraryFragment extends Fragment {
         }
 
         GutendexClient.getApi()
-                .searchBooks(query, "false", "application/epub", page)
+                .searchBooks(normalizeGutendexQuery(query), "false", "application/epub", page)
                 .enqueue(new Callback<GutendexResponse>() {
                     @Override
                     public void onResponse(
@@ -2509,7 +2512,7 @@ public class LibraryFragment extends Fragment {
             int nextAttempt,
             String reason
     ) {
-        long delayMs = 1500L * nextAttempt;
+        long delayMs = 1500L * (1L << (nextAttempt - 1));
         Log.w(
                 "GutendexSearch",
                 "Retrying query '" + query + "', page " + page
@@ -2547,6 +2550,24 @@ public class LibraryFragment extends Fragment {
             boolean[] sourceAvailable,
             Runnable onComplete
     ) {
+        fetchProjectGutenbergSearchAttempt(
+                query, accumulated, requestId, sourceAvailable, onComplete, 0
+        );
+    }
+
+    /**
+     * Search OPDS returns catalogue entries, not necessarily full publication
+     * records. Parse the listing first, then resolve each result through its
+     * individual .opds detail document before exposing an EPUB download.
+     */
+    private void fetchProjectGutenbergSearchAttempt(
+            String query,
+            List<ProjectGutenbergBook> accumulated,
+            int requestId,
+            boolean[] sourceAvailable,
+            Runnable onComplete,
+            int retryAttempt
+    ) {
         if (!isAdded() || requestId != searchRequestId) {
             onComplete.run();
             return;
@@ -2569,49 +2590,65 @@ public class LibraryFragment extends Fragment {
                         }
 
                         if (!response.isSuccessful() || response.body() == null) {
-                            if (response.errorBody() != null) {
-                                response.errorBody().close();
+                            if (response.errorBody() != null) response.errorBody().close();
+                            if (isRetryableCatalogueStatus(response.code())
+                                    && retryAttempt < MAX_OPDS_SEARCH_RETRIES) {
+                                scheduleProjectGutenbergSearchRetry(
+                                        query, accumulated, requestId, sourceAvailable,
+                                        onComplete, retryAttempt + 1
+                                );
+                            } else {
+                                Log.w(
+                                        "ProjectGutenbergSearch",
+                                        "OPDS search returned HTTP " + response.code()
+                                                + " for query '" + query + "'"
+                                );
+                                onComplete.run();
                             }
-                            Log.w(
-                                    "ProjectGutenbergSearch",
-                                    "Official OPDS returned HTTP " + response.code()
-                                            + " for query '" + query + "'"
-                            );
-                            onComplete.run();
                             return;
                         }
 
                         ResponseBody responseBody = response.body();
                         try {
                             searchExecutor.execute(() -> {
-                                List<ProjectGutenbergBook> parsedBooks = new ArrayList<>();
+                                List<ProjectGutenbergBook> candidates = new ArrayList<>();
                                 boolean parsedSuccessfully = false;
                                 try (ResponseBody closeableBody = responseBody;
                                      InputStream inputStream = closeableBody.byteStream()) {
-                                    parsedBooks.addAll(ProjectGutenbergParser.parse(inputStream));
+                                    candidates.addAll(
+                                            ProjectGutenbergParser.parseSearchListing(inputStream)
+                                    );
                                     parsedSuccessfully = true;
                                 } catch (Exception e) {
                                     Log.e(
                                             "ProjectGutenbergSearch",
-                                            "Could not parse the official OPDS feed for query '"
+                                            "Could not parse OPDS search listing for query '"
                                                     + query + "'",
                                             e
                                     );
                                 }
 
-                                final boolean success = parsedSuccessfully;
+                                final boolean parsed = parsedSuccessfully;
                                 new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                                    if (success && isAdded() && requestId == searchRequestId) {
-                                        sourceAvailable[0] = true;
-                                        accumulated.addAll(parsedBooks);
-                                        Log.d(
-                                                "ProjectGutenbergSearch",
-                                                "Parsed " + parsedBooks.size()
-                                                        + " verified EPUB results for query '"
-                                                        + query + "'"
-                                        );
+                                    if (!isAdded() || requestId != searchRequestId) {
+                                        onComplete.run();
+                                        return;
                                     }
-                                    onComplete.run();
+                                    if (!parsed) {
+                                        onComplete.run();
+                                        return;
+                                    }
+
+                                    sourceAvailable[0] = true;
+                                    Log.d(
+                                            "ProjectGutenbergSearch",
+                                            "OPDS listing returned " + candidates.size()
+                                                    + " candidates for query '" + query + "'"
+                                    );
+                                    fetchProjectGutenbergBookDetails(
+                                            candidates, 0, accumulated, requestId,
+                                            sourceAvailable, onComplete, 0
+                                    );
                                 });
                             });
                         } catch (java.util.concurrent.RejectedExecutionException e) {
@@ -2626,14 +2663,228 @@ public class LibraryFragment extends Fragment {
                             @NonNull Call<ResponseBody> call,
                             @NonNull Throwable t
                     ) {
-                        Log.w(
-                                "ProjectGutenbergSearch",
-                                "Official OPDS request failed for query '" + query + "'",
-                                t
-                        );
-                        onComplete.run();
+                        if (requestId == searchRequestId
+                                && isAdded()
+                                && retryAttempt < MAX_OPDS_SEARCH_RETRIES) {
+                            scheduleProjectGutenbergSearchRetry(
+                                    query, accumulated, requestId, sourceAvailable,
+                                    onComplete, retryAttempt + 1
+                            );
+                        } else {
+                            Log.w(
+                                    "ProjectGutenbergSearch",
+                                    "OPDS search request failed for query '" + query + "'",
+                                    t
+                            );
+                            onComplete.run();
+                        }
                     }
                 });
+    }
+
+    private void scheduleProjectGutenbergSearchRetry(
+            String query,
+            List<ProjectGutenbergBook> accumulated,
+            int requestId,
+            boolean[] sourceAvailable,
+            Runnable onComplete,
+            int nextAttempt
+    ) {
+        long delayMs = 1500L * (1L << (nextAttempt - 1));
+        Log.w(
+                "ProjectGutenbergSearch",
+                "Retrying OPDS search in " + delayMs + "ms. Attempt "
+                        + nextAttempt + " of " + MAX_OPDS_SEARCH_RETRIES
+        );
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                () -> fetchProjectGutenbergSearchAttempt(
+                        query, accumulated, requestId, sourceAvailable,
+                        onComplete, nextAttempt
+                ),
+                delayMs
+        );
+    }
+
+    /**
+     * Resolve a bounded number of search hits sequentially. Sequential detail
+     * requests avoid hammering Gutenberg and ensure each result has its own
+     * rights statement and EPUB acquisition link before it is marked downloadable.
+     */
+    private void fetchProjectGutenbergBookDetails(
+            List<ProjectGutenbergBook> candidates,
+            int index,
+            List<ProjectGutenbergBook> accumulated,
+            int requestId,
+            boolean[] sourceAvailable,
+            Runnable onComplete,
+            int retryAttempt
+    ) {
+        int limit = Math.min(
+                candidates == null ? 0 : candidates.size(),
+                MAX_OPDS_DETAIL_BOOKS
+        );
+        if (!isAdded() || requestId != searchRequestId || index >= limit) {
+            onComplete.run();
+            return;
+        }
+
+        ProjectGutenbergBook candidate = candidates.get(index);
+        if (candidate == null || candidate.id <= 0
+                || candidate.bookPageUrl == null || candidate.bookPageUrl.trim().isEmpty()) {
+            fetchProjectGutenbergBookDetails(
+                    candidates, index + 1, accumulated, requestId,
+                    sourceAvailable, onComplete, 0
+            );
+            return;
+        }
+
+        String detailUrl = candidate.bookPageUrl + ".opds";
+        ProjectGutenbergClient.getApi()
+                .getBookDetail(detailUrl)
+                .enqueue(new Callback<ResponseBody>() {
+                    @Override
+                    public void onResponse(
+                            @NonNull Call<ResponseBody> call,
+                            @NonNull Response<ResponseBody> response
+                    ) {
+                        if (!isAdded() || requestId != searchRequestId) {
+                            if (response.body() != null) response.body().close();
+                            if (response.errorBody() != null) response.errorBody().close();
+                            onComplete.run();
+                            return;
+                        }
+
+                        if (!response.isSuccessful() || response.body() == null) {
+                            if (response.errorBody() != null) response.errorBody().close();
+                            if (isRetryableCatalogueStatus(response.code())
+                                    && retryAttempt < MAX_OPDS_DETAIL_RETRIES) {
+                                scheduleProjectGutenbergDetailRetry(
+                                        candidates, index, accumulated, requestId,
+                                        sourceAvailable, onComplete, retryAttempt + 1
+                                );
+                            } else {
+                                Log.w(
+                                        "ProjectGutenbergSearch",
+                                        "OPDS detail returned HTTP " + response.code()
+                                                + " for Gutenberg ID " + candidate.id
+                                );
+                                fetchProjectGutenbergBookDetails(
+                                        candidates, index + 1, accumulated, requestId,
+                                        sourceAvailable, onComplete, 0
+                                );
+                            }
+                            return;
+                        }
+
+                        ResponseBody responseBody = response.body();
+                        try {
+                            searchExecutor.execute(() -> {
+                                ProjectGutenbergBook detail = null;
+                                try (ResponseBody closeableBody = responseBody;
+                                     InputStream inputStream = closeableBody.byteStream()) {
+                                    detail = ProjectGutenbergParser.parseDetail(inputStream);
+                                } catch (Exception e) {
+                                    Log.w(
+                                            "ProjectGutenbergSearch",
+                                            "Could not parse OPDS detail for Gutenberg ID "
+                                                    + candidate.id,
+                                            e
+                                    );
+                                }
+
+                                ProjectGutenbergBook parsedDetail = detail;
+                                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                                    if (!isAdded() || requestId != searchRequestId) {
+                                        onComplete.run();
+                                        return;
+                                    }
+
+                                    if (parsedDetail != null
+                                            && parsedDetail.id > 0
+                                            && parsedDetail.publicDomainInUs
+                                            && parsedDetail.epubUrl != null
+                                            && !parsedDetail.epubUrl.trim().isEmpty()) {
+                                        accumulated.add(parsedDetail);
+                                        Log.d(
+                                                "ProjectGutenbergSearch",
+                                                "Verified EPUB metadata for Gutenberg ID "
+                                                        + parsedDetail.id
+                                        );
+                                    }
+
+                                    fetchProjectGutenbergBookDetails(
+                                            candidates, index + 1, accumulated, requestId,
+                                            sourceAvailable, onComplete, 0
+                                    );
+                                });
+                            });
+                        } catch (java.util.concurrent.RejectedExecutionException e) {
+                            responseBody.close();
+                            Log.w("ProjectGutenbergSearch", "Search executor is shutting down", e);
+                            fetchProjectGutenbergBookDetails(
+                                    candidates, index + 1, accumulated, requestId,
+                                    sourceAvailable, onComplete, 0
+                            );
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(
+                            @NonNull Call<ResponseBody> call,
+                            @NonNull Throwable t
+                    ) {
+                        if (requestId == searchRequestId && isAdded()
+                                && retryAttempt < MAX_OPDS_DETAIL_RETRIES) {
+                            scheduleProjectGutenbergDetailRetry(
+                                    candidates, index, accumulated, requestId,
+                                    sourceAvailable, onComplete, retryAttempt + 1
+                            );
+                        } else {
+                            Log.w(
+                                    "ProjectGutenbergSearch",
+                                    "OPDS detail request failed for Gutenberg ID " + candidate.id,
+                                    t
+                            );
+                            fetchProjectGutenbergBookDetails(
+                                    candidates, index + 1, accumulated, requestId,
+                                    sourceAvailable, onComplete, 0
+                            );
+                        }
+                    }
+                });
+    }
+
+    private void scheduleProjectGutenbergDetailRetry(
+            List<ProjectGutenbergBook> candidates,
+            int index,
+            List<ProjectGutenbergBook> accumulated,
+            int requestId,
+            boolean[] sourceAvailable,
+            Runnable onComplete,
+            int nextAttempt
+    ) {
+        long delayMs = 1500L * (1L << (nextAttempt - 1));
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                () -> fetchProjectGutenbergBookDetails(
+                        candidates, index, accumulated, requestId,
+                        sourceAvailable, onComplete, nextAttempt
+                ),
+                delayMs
+        );
+    }
+
+    private boolean isRetryableCatalogueStatus(int statusCode) {
+        return statusCode == 408 || statusCode == 429 || statusCode >= 500;
+    }
+
+    private String normalizeGutendexQuery(String query) {
+        if (query == null) {
+            return "";
+        }
+        return query.replaceAll("(?i)['’]s\\b", "")
+                .replaceAll("[^\\p{L}\\p{N}\\s]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private String normalizeProjectGutenbergQuery(String query) {
