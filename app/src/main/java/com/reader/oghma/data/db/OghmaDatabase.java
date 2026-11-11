@@ -174,7 +174,6 @@ public abstract class OghmaDatabase
                                             MIGRATION_2_3,
                                             MIGRATION_3_4
                                     )
-                                    .fallbackToDestructiveMigration()
                                     .build();
                 }
             }
