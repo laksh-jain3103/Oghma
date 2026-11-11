@@ -2,6 +2,7 @@ package com.reader.oghma.search;
 
 import com.reader.oghma.api.model.GoogleBookItem;
 import com.reader.oghma.api.model.GutendexBook;
+import com.reader.oghma.api.model.ProjectGutenbergBook;
 
 public class UnifiedBookItem {
     public enum Source {
@@ -19,4 +20,6 @@ public class UnifiedBookItem {
     public String previewUrl;
     public GoogleBookItem googleBookItem;
     public GutendexBook gutendexBook;
+    public ProjectGutenbergBook projectGutenbergBook;
+    public int gutenbergId;
 }
