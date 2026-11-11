@@ -21,6 +21,9 @@ public class GoogleBookInfo {
     @SerializedName("publishedDate")
     public String publishedDate;
 
+    @SerializedName("previewLink")
+    public String previewLink;
+
     @SerializedName("imageLinks")
     public ImageLinks imageLinks;
 

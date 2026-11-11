@@ -77,7 +77,7 @@ public class BookIngestor {
                 // -----------------------------
 
                 File destination =
-                        new File(
+                        createUniqueDestination(
                                 booksDirectory,
                                 fileName
                         );
@@ -214,7 +214,7 @@ public class BookIngestor {
                 // -----------------------------
 
                 File destination =
-                        new File(
+                        createUniqueDestination(
                                 booksDirectory,
                                 fileName
                         );
@@ -687,6 +687,45 @@ public class BookIngestor {
         );
     }
 
+
+    /**
+     * Never overwrite an existing book when the user imports another file
+     * with the same display name. Keep the original extension and add a
+     * numeric suffix to the new copy.
+     */
+    private File createUniqueDestination(
+            File directory,
+            String requestedName
+    ) {
+        String safeName = requestedName == null
+                ? "book.epub"
+                : requestedName.replaceAll("[\\\\/:*?\\\"<>|]", "_").trim();
+
+        if (safeName.isEmpty()) {
+            safeName = "book.epub";
+        }
+
+        File destination = new File(directory, safeName);
+        if (!destination.exists()) {
+            return destination;
+        }
+
+        int dotIndex = safeName.lastIndexOf('.');
+        String baseName = dotIndex > 0
+                ? safeName.substring(0, dotIndex) : safeName;
+        String extension = dotIndex > 0
+                ? safeName.substring(dotIndex) : "";
+
+        int suffix = 2;
+        do {
+            destination = new File(
+                    directory,
+                    baseName + " (" + suffix++ + ")" + extension
+            );
+        } while (destination.exists());
+
+        return destination;
+    }
 
     private void copyFile(
             InputStream inputStream,
