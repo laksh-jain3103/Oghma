@@ -222,12 +222,23 @@
                         android:layout_height="50dp"
                         android:layout_marginStart="8dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Search Google Books"
+                        android:contentDescription="Search books"
                         android:padding="12dp"
                         android:src="@android:drawable/ic_menu_search"
                         app:tint="@color/text_primary" />
 
                 </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp"
+                    android:paddingStart="2dp"
+                    android:paddingEnd="2dp"
+                    android:text="Project Gutenberg's copyright flag refers to U.S. public-domain status. Copyright rules may differ in your country."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/googleBooksRecyclerView"
