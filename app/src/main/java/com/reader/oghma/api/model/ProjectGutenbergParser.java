@@ -30,7 +30,7 @@ public final class ProjectGutenbergParser {
     private static final String ATOM_NAMESPACE = "http://www.w3.org/2005/Atom";
     private static final String BASE_URL = "https://www.gutenberg.org/";
     private static final Pattern BOOK_ID_PATTERN =
-            Pattern.compile("/ebooks/(\\d+)(?:\\.opds)?");
+            Pattern.compile("/ebooks/(\\d+)(?:\\.[^/?#]+)?");
 
     private ProjectGutenbergParser() {
     }
@@ -220,6 +220,22 @@ public final class ProjectGutenbergParser {
         book.publicDomainInUs =
                 normalizedRights.contains("public domain in the usa");
 
+        // Some OPDS detail entries use a URN as their Atom ID. Recover the
+        // numeric Gutenberg ID from the EBook No. field before constructing
+        // the canonical EPUB URL.
+        if (book.id <= 0 && content != null) {
+            Matcher idMatcher = Pattern.compile(
+                    "EBook No\\\\.:\\\\s*(\\\\d+)",
+                    Pattern.CASE_INSENSITIVE
+            ).matcher(content.getTextContent());
+            if (idMatcher.find() && idMatcher.group(1) != null) {
+                try {
+                    book.id = Integer.parseInt(idMatcher.group(1));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+
         List<Element> links = directChildren(entry, "link");
         for (Element link : links) {
             String rel = link.getAttribute("rel");
@@ -257,21 +273,6 @@ public final class ProjectGutenbergParser {
         }
         if (isBlank(book.epubUrl) && book.id > 0) {
             book.epubUrl = BASE_URL + "ebooks/" + book.id + ".epub.images";
-        }
-
-        if (book.id <= 0) {
-            book.id = extractBookId(book.epubUrl);
-        }
-        if (book.id <= 0) {
-            if (content != null) {
-                Matcher idMatcher = Pattern.compile("EBook No\\.:\\s*(\\d+)", Pattern.CASE_INSENSITIVE).matcher(content.getTextContent());
-                if (idMatcher.find() && idMatcher.group(1) != null) {
-                    try {
-                        book.id = Integer.parseInt(idMatcher.group(1));
-                    } catch (NumberFormatException ignored) {
-                    }
-                }
-            }
         }
 
         return book;
