@@ -11,7 +11,7 @@ import retrofit2.http.Url;
 
 public interface GutendexApi {
 
-    @GET("books")
+    @GET("books/")
     Call<GutendexResponse> searchBooks(
             @Query("search") String query,
             @Query("copyright") String copyright,
