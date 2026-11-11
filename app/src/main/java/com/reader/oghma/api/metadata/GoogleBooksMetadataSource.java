@@ -34,7 +34,7 @@ public class GoogleBooksMetadataSource {
         }
 
         Response<GoogleBooksResponse> response = GoogleBooksClient.getApi()
-                .searchBooks(query, apiKey, packageName, cert, null, null)
+                .searchBooks(query, apiKey, packageName, cert, 10, 0)
                 .execute();
 
         int code = response.code();

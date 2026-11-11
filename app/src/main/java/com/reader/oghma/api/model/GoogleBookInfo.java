@@ -27,6 +27,9 @@ public class GoogleBookInfo {
     @SerializedName("industryIdentifiers")
     public List<IndustryIdentifier> industryIdentifiers;
 
+    @SerializedName("previewLink")
+    public String previewLink;
+
     public static class IndustryIdentifier {
         @SerializedName("type")
         public String type;
