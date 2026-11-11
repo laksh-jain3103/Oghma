@@ -5,7 +5,10 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
+import org.xml.sax.InputSource;
+import javax.xml.parsers.DocumentBuilder;
 import java.io.InputStream;
+import java.io.StringReader;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,14 +44,29 @@ public final class ProjectGutenbergParser {
 
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);
-        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-        factory.setXIncludeAware(false);
+        trySetFeature(factory, XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        trySetFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
+        trySetFeature(factory, "http://xml.org/sax/features/external-general-entities", false);
+        trySetFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false);
+        try {
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        } catch (IllegalArgumentException ignored) {
+            // Some Android XML implementations do not expose these JAXP attributes.
+        }
+        try {
+            factory.setXIncludeAware(false);
+        } catch (UnsupportedOperationException ignored) {
+            // XInclude is disabled by the entity resolver below as well.
+        }
         factory.setExpandEntityReferences(false);
 
-        Document document = factory.newDocumentBuilder().parse(inputStream);
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        // Never allow the remote feed to resolve external entities or DTDs.
+        builder.setEntityResolver((publicId, systemId) ->
+                new InputSource(new StringReader(""))
+        );
+        Document document = builder.parse(inputStream);
         NodeList entries = document.getElementsByTagNameNS(ATOM_NAMESPACE, "entry");
 
         // Be tolerant of feeds that omit the Atom namespace declaration.
@@ -83,16 +101,13 @@ public final class ProjectGutenbergParser {
         String entryId = textOf(firstDirectChild(entry, "id"));
         book.publishedDate = textOf(firstDirectChild(entry, "published"));
 
-        NodeList authors = directChildren(entry, "author");
-        for (int i = 0; i < authors.getLength(); i++) {
-            Node authorNode = authors.item(i);
-            if (authorNode instanceof Element) {
-                String authorName = textOf(
-                        firstDirectChild((Element) authorNode, "name")
-                );
-                if (!isBlank(authorName)) {
-                    book.authors.add(authorName);
-                }
+        List<Element> authors = directChildren(entry, "author");
+        for (Element authorElement : authors) {
+            String authorName = textOf(
+                    firstDirectChild(authorElement, "name")
+            );
+            if (!isBlank(authorName)) {
+                book.authors.add(authorName);
             }
         }
 
@@ -109,14 +124,8 @@ public final class ProjectGutenbergParser {
         book.publicDomainInUs =
                 normalizedRights.contains("public domain in the usa");
 
-        NodeList links = directChildren(entry, "link");
-        for (int i = 0; i < links.getLength(); i++) {
-            Node linkNode = links.item(i);
-            if (!(linkNode instanceof Element)) {
-                continue;
-            }
-
-            Element link = (Element) linkNode;
+        List<Element> links = directChildren(entry, "link");
+        for (Element link : links) {
             String rel = link.getAttribute("rel");
             String type = link.getAttribute("type").toLowerCase(Locale.ROOT);
             String href = link.getAttribute("href");
@@ -148,40 +157,34 @@ public final class ProjectGutenbergParser {
         return book;
     }
 
-    private static NodeList directChildren(Element parent, String localName) {
-        return new NodeList() {
-            private final List<Node> matches = collect();
-
-            private List<Node> collect() {
-                List<Node> result = new ArrayList<>();
-                Node child = parent.getFirstChild();
-                while (child != null) {
-                    if (child instanceof Element
-                            && localName.equals(localNameOf(child))) {
-                        result.add(child);
-                    }
-                    child = child.getNextSibling();
-                }
-                return result;
+    private static List<Element> directChildren(Element parent, String localName) {
+        List<Element> matches = new ArrayList<>();
+        Node child = parent.getFirstChild();
+        while (child != null) {
+            if (child instanceof Element
+                    && localName.equals(localNameOf(child))) {
+                matches.add((Element) child);
             }
-
-            @Override
-            public Node item(int index) {
-                return index >= 0 && index < matches.size()
-                        ? matches.get(index) : null;
-            }
-
-            @Override
-            public int getLength() {
-                return matches.size();
-            }
-        };
+            child = child.getNextSibling();
+        }
+        return matches;
     }
 
     private static Element firstDirectChild(Element parent, String localName) {
-        NodeList children = directChildren(parent, localName);
-        return children.getLength() == 0
-                ? null : (Element) children.item(0);
+        List<Element> children = directChildren(parent, localName);
+        return children.isEmpty() ? null : children.get(0);
+    }
+
+    private static void trySetFeature(
+            DocumentBuilderFactory factory,
+            String feature,
+            boolean enabled
+    ) {
+        try {
+            factory.setFeature(feature, enabled);
+        } catch (Exception ignored) {
+            // The entity resolver still prevents external resource access.
+        }
     }
 
     private static String localNameOf(Node node) {
