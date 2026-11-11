@@ -2241,15 +2241,12 @@ public class LibraryFragment extends Fragment {
         final boolean[] projectGutenbergFinished = {false};
         final boolean[] gutendexAvailable = {false};
         final boolean[] projectGutenbergAvailable = {false};
+        final boolean[] outageToastShown = {false};
 
-        Runnable checkComplete = () -> {
-            if (requestId != searchRequestId
-                    || !googleFinished[0]
-                    || !gutendexFinished[0]
-                    || !projectGutenbergFinished[0]) {
-                return;
-            }
-            if (!isAdded()) {
+        // Render as soon as Google finishes, then refresh the same list whenever
+        // either Gutenberg catalogue responds. A slow catalogue must not block previews.
+        Runnable renderResults = () -> {
+            if (requestId != searchRequestId || !googleFinished[0] || !isAdded()) {
                 return;
             }
 
@@ -2260,7 +2257,12 @@ public class LibraryFragment extends Fragment {
                     projectGutenbergBooksList
             );
 
-            if (!gutendexAvailable[0] && !projectGutenbergAvailable[0]) {
+            if (gutendexFinished[0]
+                    && projectGutenbergFinished[0]
+                    && !gutendexAvailable[0]
+                    && !projectGutenbergAvailable[0]
+                    && !outageToastShown[0]) {
+                outageToastShown[0] = true;
                 Toast.makeText(
                         requireContext(),
                         "The public-domain catalogue is temporarily unavailable. Google previews may still appear.",
@@ -2272,7 +2274,7 @@ public class LibraryFragment extends Fragment {
         // Google Books supplies broad discovery results and preview links.
         fetchGoogleBooksPages(query, 0, 40, googleBooksList, requestId, () -> {
             googleFinished[0] = true;
-            checkComplete.run();
+            renderResults.run();
         });
 
         // Gutendex is retained as one catalogue provider.
@@ -2280,7 +2282,7 @@ public class LibraryFragment extends Fragment {
                 query, 1, 3, gutendexBooksList, requestId, gutendexAvailable,
                 () -> {
                     gutendexFinished[0] = true;
-                    checkComplete.run();
+                    renderResults.run();
                 }
         );
 
@@ -2289,7 +2291,7 @@ public class LibraryFragment extends Fragment {
                 query, projectGutenbergBooksList, requestId, projectGutenbergAvailable,
                 () -> {
                     projectGutenbergFinished[0] = true;
-                    checkComplete.run();
+                    renderResults.run();
                 }
         );
     }
@@ -2695,20 +2697,13 @@ public class LibraryFragment extends Fragment {
                         ? "Unknown author" : String.join(", ", pgBook.authors);
 
                 UnifiedBookItem existing = findGutenbergBookById(unifiedList, pgBook.id);
-                if (existing == null) {
-                    existing = findMatchingGutenbergBook(unifiedList, pgBook.title, author);
-                }
-
                 if (existing != null) {
                     if (existing.coverUrl == null || existing.coverUrl.isEmpty()) {
                         existing.coverUrl = pgBook.coverUrl;
                     }
-                    if (existing.downloadUrl == null || existing.downloadUrl.isEmpty()) {
-                        existing.downloadUrl = pgBook.epubUrl;
-                    }
-                    if (existing.gutenbergId <= 0) {
-                        existing.gutenbergId = pgBook.id;
-                    }
+                    // Prefer the official OPDS acquisition URL over a cached catalogue URL.
+                    existing.downloadUrl = pgBook.epubUrl;
+                    existing.gutenbergId = pgBook.id;
                     existing.projectGutenbergBook = pgBook;
                     existing.isDownloadable = true;
                     continue;
@@ -2943,7 +2938,7 @@ public class LibraryFragment extends Fragment {
                         if (!isAdded()) {
                             return;
                         }
-                        Log.e("GutendexDownload", "EPUB download request failed", t);
+                        Log.e("GutenbergDownload", "EPUB download request failed", t);
                         postDownloadMessage(
                                 "Could not download this EPUB. Check your connection and try again."
                         );
@@ -2975,7 +2970,7 @@ public class LibraryFragment extends Fragment {
                 outputStream.write(buffer, 0, bytesRead);
             }
         } catch (Exception e) {
-            Log.e("GutendexDownload", "Could not save downloaded EPUB", e);
+            Log.e("GutenbergDownload", "Could not save downloaded EPUB", e);
             if (tempFile.exists()) {
                 tempFile.delete();
             }
@@ -2984,7 +2979,7 @@ public class LibraryFragment extends Fragment {
         }
 
         if (!isValidEpub(tempFile)) {
-            Log.e("GutendexDownload", "The server response is not a valid EPUB file.");
+            Log.e("GutenbergDownload", "The server response is not a valid EPUB file.");
             if (tempFile.exists()) {
                 tempFile.delete();
             }
@@ -3020,7 +3015,7 @@ public class LibraryFragment extends Fragment {
                     "EPUB downloaded. Adding it to your library."
             );
         } catch (java.io.IOException e) {
-            Log.e("GutendexDownload", "Could not pass EPUB to the library importer", e);
+            Log.e("GutenbergDownload", "Could not pass EPUB to the library importer", e);
             if (tempFile.exists()) {
                 tempFile.delete();
             }
@@ -3070,7 +3065,7 @@ public class LibraryFragment extends Fragment {
 
             return java.util.Arrays.equals(expected, actual);
         } catch (java.io.IOException e) {
-            Log.e("GutendexDownload", "EPUB ZIP validation failed", e);
+            Log.e("GutenbergDownload", "EPUB ZIP validation failed", e);
             return false;
         }
     }
