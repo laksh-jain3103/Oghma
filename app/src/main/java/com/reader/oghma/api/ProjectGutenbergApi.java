@@ -15,6 +15,11 @@ public interface ProjectGutenbergApi {
             @Query("query") String query
     );
 
+    @GET
+    Call<ResponseBody> getBookDetail(
+            @Url String url
+    );
+
     @Streaming
     @GET
     Call<ResponseBody> downloadEpub(

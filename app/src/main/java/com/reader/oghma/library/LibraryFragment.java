@@ -2405,7 +2405,6 @@ public class LibraryFragment extends Fragment {
                             @NonNull Response<GutendexResponse> response
                     ) {
                         if (!isAdded() || requestId != searchRequestId) {
-                            if (response.body() != null) response.body().close();
                             if (response.errorBody() != null) response.errorBody().close();
                             onComplete.run();
                             return;

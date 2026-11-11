@@ -20,9 +20,9 @@ import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 /**
- * Parses the Atom XML returned by Project Gutenberg's official OPDS search feed.
+ * Parses the Atom XML returned by Project Gutenberg's official OPDS search feed and detail feeds.
  *
- * A result is marked downloadable only when the feed explicitly states that
+ * A result is marked downloadable only when the detail feed explicitly states that
  * the work is public domain in the USA and supplies an EPUB acquisition link.
  */
 public final class ProjectGutenbergParser {
@@ -35,6 +35,96 @@ public final class ProjectGutenbergParser {
     private ProjectGutenbergParser() {
     }
 
+    public static List<ProjectGutenbergBook> parseSearchListing(InputStream inputStream) throws Exception {
+        List<ProjectGutenbergBook> books = new ArrayList<>();
+        if (inputStream == null) {
+            return books;
+        }
+
+        Document document = parseXmlDocument(inputStream);
+        NodeList entries = document.getElementsByTagNameNS(ATOM_NAMESPACE, "entry");
+        if (entries.getLength() == 0) {
+            entries = document.getElementsByTagName("entry");
+        }
+
+        for (int i = 0; i < entries.getLength(); i++) {
+            Node node = entries.item(i);
+            if (!(node instanceof Element)) {
+                continue;
+            }
+
+            Element entry = (Element) node;
+            String title = textOf(firstDirectChild(entry, "title"));
+            String entryId = textOf(firstDirectChild(entry, "id"));
+
+            if ("Subjects".equalsIgnoreCase(title)) {
+                continue;
+            }
+
+            ProjectGutenbergBook book = new ProjectGutenbergBook();
+            book.title = title;
+            book.id = extractBookId(entryId);
+
+            List<Element> authors = directChildren(entry, "author");
+            for (Element authorElement : authors) {
+                String authorName = textOf(firstDirectChild(authorElement, "name"));
+                if (!isBlank(authorName)) {
+                    book.authors.add(authorName);
+                }
+            }
+
+            Element content = firstDirectChild(entry, "content");
+            if (content != null) {
+                String contentText = content.getTextContent();
+                if (!isBlank(contentText) && book.authors.isEmpty() && contentText.length() < 100) {
+                    book.authors.add(contentText.trim());
+                }
+            }
+
+            if (book.id <= 0) {
+                List<Element> links = directChildren(entry, "link");
+                for (Element link : links) {
+                    String href = link.getAttribute("href");
+                    int id = extractBookId(href);
+                    if (id > 0) {
+                        book.id = id;
+                        break;
+                    }
+                }
+            }
+
+            if (book.id > 0 && !isBlank(book.title)) {
+                book.bookPageUrl = BASE_URL + "ebooks/" + book.id;
+                books.add(book);
+            }
+        }
+
+        return books;
+    }
+
+    public static ProjectGutenbergBook parseDetail(InputStream inputStream) throws Exception {
+        if (inputStream == null) {
+            return null;
+        }
+
+        Document document = parseXmlDocument(inputStream);
+        NodeList entries = document.getElementsByTagNameNS(ATOM_NAMESPACE, "entry");
+        if (entries.getLength() == 0) {
+            entries = document.getElementsByTagName("entry");
+        }
+        if (entries.getLength() == 0) {
+            return null;
+        }
+
+        Element entry = (Element) entries.item(0);
+        ProjectGutenbergBook book = parseEntry(entry);
+        if (book != null && book.id > 0 && !isBlank(book.title) && !isBlank(book.epubUrl) && book.publicDomainInUs) {
+            book.bookPageUrl = BASE_URL + "ebooks/" + book.id;
+            return book;
+        }
+        return book;
+    }
+
     public static List<ProjectGutenbergBook> parse(InputStream inputStream)
             throws Exception {
         List<ProjectGutenbergBook> books = new ArrayList<>();
@@ -42,34 +132,9 @@ public final class ProjectGutenbergParser {
             return books;
         }
 
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setNamespaceAware(true);
-        trySetFeature(factory, XMLConstants.FEATURE_SECURE_PROCESSING, true);
-        trySetFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
-        trySetFeature(factory, "http://xml.org/sax/features/external-general-entities", false);
-        trySetFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false);
-        try {
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-        } catch (IllegalArgumentException ignored) {
-            // Some Android XML implementations do not expose these JAXP attributes.
-        }
-        try {
-            factory.setXIncludeAware(false);
-        } catch (UnsupportedOperationException ignored) {
-            // XInclude is disabled by the entity resolver below as well.
-        }
-        factory.setExpandEntityReferences(false);
-
-        DocumentBuilder builder = factory.newDocumentBuilder();
-        // Never allow the remote feed to resolve external entities or DTDs.
-        builder.setEntityResolver((publicId, systemId) ->
-                new InputSource(new StringReader(""))
-        );
-        Document document = builder.parse(inputStream);
+        Document document = parseXmlDocument(inputStream);
         NodeList entries = document.getElementsByTagNameNS(ATOM_NAMESPACE, "entry");
 
-        // Be tolerant of feeds that omit the Atom namespace declaration.
         if (entries.getLength() == 0) {
             entries = document.getElementsByTagName("entry");
         }
@@ -92,6 +157,26 @@ public final class ProjectGutenbergParser {
         }
 
         return books;
+    }
+
+    private static Document parseXmlDocument(InputStream inputStream) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        trySetFeature(factory, XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        trySetFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
+        trySetFeature(factory, "http://xml.org/sax/features/external-general-entities", false);
+        trySetFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false);
+        try {
+            factory.setXIncludeAware(false);
+        } catch (UnsupportedOperationException ignored) {
+        }
+        factory.setExpandEntityReferences(false);
+
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        builder.setEntityResolver((publicId, systemId) ->
+                new InputSource(new StringReader(""))
+        );
+        return builder.parse(inputStream);
     }
 
     private static ProjectGutenbergBook parseEntry(Element entry) {
@@ -117,6 +202,16 @@ public final class ProjectGutenbergParser {
         Element content = firstDirectChild(entry, "content");
         if (content != null) {
             appendText(rightsText, content.getTextContent());
+            if (book.authors.isEmpty()) {
+                String contentText = content.getTextContent();
+                Matcher authorMatcher = Pattern.compile("Author:\\s*([^\n<]+)", Pattern.CASE_INSENSITIVE).matcher(contentText);
+                if (authorMatcher.find() && authorMatcher.group(1) != null) {
+                    String auth = authorMatcher.group(1).trim();
+                    if (!isBlank(auth)) {
+                        book.authors.add(auth);
+                    }
+                }
+            }
         }
 
         book.rights = rightsText.toString().trim();
@@ -149,9 +244,34 @@ public final class ProjectGutenbergParser {
             }
         }
 
+        if (isBlank(book.epubUrl)) {
+            for (Element link : links) {
+                String href = link.getAttribute("href");
+                String type = link.getAttribute("type").toLowerCase(Locale.ROOT);
+                if (!isBlank(href) && (type.contains("epub") || href.contains(".epub"))) {
+                    book.epubUrl = resolveUrl(href);
+                    break;
+                }
+            }
+        }
+        if (isBlank(book.epubUrl) && book.id > 0) {
+            book.epubUrl = BASE_URL + "ebooks/" + book.id + ".epub.images";
+        }
+
         book.id = extractBookId(entryId);
         if (book.id <= 0) {
             book.id = extractBookId(book.epubUrl);
+        }
+        if (book.id <= 0) {
+            if (content != null) {
+                Matcher idMatcher = Pattern.compile("EBook No\\.:\\s*(\\d+)", Pattern.CASE_INSENSITIVE).matcher(content.getTextContent());
+                if (idMatcher.find() && idMatcher.group(1) != null) {
+                    try {
+                        book.id = Integer.parseInt(idMatcher.group(1));
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
         }
 
         return book;
@@ -183,7 +303,6 @@ public final class ProjectGutenbergParser {
         try {
             factory.setFeature(feature, enabled);
         } catch (Exception ignored) {
-            // The entity resolver still prevents external resource access.
         }
     }
 
@@ -216,7 +335,7 @@ public final class ProjectGutenbergParser {
             return 0;
         }
         Matcher matcher = BOOK_ID_PATTERN.matcher(value);
-        return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
+        return matcher.find() && matcher.group(1) != null ? Integer.parseInt(matcher.group(1)) : 0;
     }
 
     private static String resolveUrl(String href) {
