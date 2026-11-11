@@ -1,0 +1,818 @@
+diff -ruN a/Oghma/app/src/main/java/com/reader/oghma/api/metadata/BookMetadataService.java b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/BookMetadataService.java
+--- a/Oghma/app/src/main/java/com/reader/oghma/api/metadata/BookMetadataService.java	2026-11-10 21:34:49.437925951 +0000
++++ b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/BookMetadataService.java	2026-11-10 21:34:51.917374211 +0000
+@@ -15,10 +15,19 @@
+     public static class Result {
+         public final Status status;
+         public final List<String> tags;
++        /** The catalogue entry the tags came from (null unless SUCCESS). */
++        public final String matchedTitle;
++        public final List<String> matchedAuthors;
+ 
+         public Result(Status status, List<String> tags) {
++            this(status, tags, null, null);
++        }
++
++        public Result(Status status, List<String> tags, String matchedTitle, List<String> matchedAuthors) {
+             this.status = status;
+             this.tags = tags != null ? tags : new ArrayList<>();
++            this.matchedTitle = matchedTitle;
++            this.matchedAuthors = matchedAuthors != null ? matchedAuthors : new ArrayList<>();
+         }
+     }
+ 
+@@ -29,6 +38,7 @@
+         List<String> combinedRawTags = new ArrayList<>();
+         boolean networkError = false;
+         boolean foundAny = false;
++        BookMetadata matched = null;
+ 
+         // 1. Google Books
+         try {
+@@ -36,6 +46,7 @@
+             if (gMeta != null && gMeta.rawTags != null && !gMeta.rawTags.isEmpty()) {
+                 combinedRawTags.addAll(gMeta.rawTags);
+                 foundAny = true;
++                matched = gMeta;
+             }
+         } catch (IOException e) {
+             networkError = true;
+@@ -47,6 +58,7 @@
+             if (olMeta != null && olMeta.rawTags != null && !olMeta.rawTags.isEmpty()) {
+                 combinedRawTags.addAll(olMeta.rawTags);
+                 foundAny = true;
++                if (matched == null) matched = olMeta;
+             }
+         } catch (IOException e) {
+             networkError = true;
+@@ -64,6 +76,8 @@
+             return new Result(Status.NOT_FOUND, null);
+         }
+ 
+-        return new Result(Status.SUCCESS, normalizedTags);
++        return new Result(Status.SUCCESS, normalizedTags,
++                matched != null ? matched.title : null,
++                matched != null ? matched.authors : null);
+     }
+ }
+diff -ruN a/Oghma/app/src/main/java/com/reader/oghma/api/metadata/FilenameParser.java b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/FilenameParser.java
+--- a/Oghma/app/src/main/java/com/reader/oghma/api/metadata/FilenameParser.java	1970-01-01 00:00:00.000000000 +0000
++++ b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/FilenameParser.java	2026-11-10 21:34:51.917382827 +0000
+@@ -0,0 +1,254 @@
++package com.reader.oghma.api.metadata;
++
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.List;
++import java.util.Locale;
++import java.util.regex.Pattern;
++
++/**
++ * Digs a title and author out of a file name such as
++ * "Pierce_Brown_-_Red_Rising_(z-lib.org).epub".
++ *
++ * Pure Java, no Android dependencies, so it can be unit tested.
++ */
++public final class FilenameParser {
++
++    private FilenameParser() {}
++
++    public static final class Candidate {
++        public final String title;
++        /** Null when no author guess is available. */
++        public final List<String> authors;
++
++        public Candidate(String title, List<String> authors) {
++            this.title = title;
++            this.authors = authors;
++        }
++
++        @Override
++        public boolean equals(Object o) {
++            if (!(o instanceof Candidate)) return false;
++            Candidate c = (Candidate) o;
++            return title.equalsIgnoreCase(c.title)
++                    && String.valueOf(authors).equalsIgnoreCase(String.valueOf(c.authors));
++        }
++
++        @Override
++        public int hashCode() {
++            return title.toLowerCase(Locale.ROOT).hashCode();
++        }
++
++        @Override
++        public String toString() {
++            return "title=\"" + title + "\" authors=" + authors;
++        }
++    }
++
++    private static final Pattern KNOWN_EXTENSION =
++            Pattern.compile("(?i)\\.(epub|pdf|txt|mobi|azw3?|fb2|djvu|rtf)$");
++
++    private static final Pattern BRACKETS =
++            Pattern.compile("\\([^)]*\\)|\\[[^\\]]*\\]|\\{[^}]*\\}");
++
++    private static final Pattern SITE_JUNK = Pattern.compile(
++            "(?i)\\b(z[- ]?lib(rary)?([. ]org)?|libgen([. ]\\w+)?|anna'?s[- ]archive|"
++                    + "oceanofpdf([. ]com)?|epub|mobi|azw3|retail|ebook|ocr)\\b");
++
++    /** Digits (optionally hyphen/space separated) that may be an ISBN-10 or ISBN-13. */
++    private static final Pattern ISBN_LIKE =
++            Pattern.compile("(?<![\\dA-Za-z])(?:\\d[- ]?){9,12}[\\dXx](?![\\dA-Za-z])");
++
++    private static final Pattern DASH_SEPARATOR = Pattern.compile("\\s+[-\\u2013\\u2014]\\s+");
++
++    private static final Pattern BY_SEPARATOR = Pattern.compile("(?i)\\s+by\\s+");
++
++    /** Readable title for display: extension, junk and bracketed noise removed. */
++    public static String cleanTitle(String fileName) {
++        String cleaned = clean(fileName);
++        if (cleaned.isEmpty()) {
++            return fileName == null ? "" : stripExtension(fileName).trim();
++        }
++        return cleaned;
++    }
++
++    /**
++     * Guesses of (title, author), best guess first. Always ends with the whole cleaned
++     * name as a title with no author.
++     */
++    public static List<Candidate> candidates(String fileName) {
++        List<Candidate> out = new ArrayList<>();
++        String cleaned = clean(fileName);
++        if (cleaned.isEmpty()) {
++            return out;
++        }
++
++        List<String> parts = splitParts(cleaned);
++
++        if (parts.size() == 2) {
++            String a = parts.get(0);
++            String b = parts.get(1);
++            boolean aName = looksLikeName(a);
++            boolean bName = looksLikeName(b);
++            if (aName || !bName) {
++                add(out, b, a);   // "Author - Title"
++                add(out, a, b);   // "Title - Author"
++            } else {
++                add(out, a, b);
++                add(out, b, a);
++            }
++        } else if (parts.size() > 2) {
++            String first = parts.get(0);
++            String last = parts.get(parts.size() - 1);
++            add(out, join(parts, 1, parts.size()), first);       // "Author - Series - Title"
++            add(out, parts.get(parts.size() - 1), first);        // "Author - ... - Title"
++            add(out, join(parts, 0, parts.size() - 1), last);    // "Title - Series - Author"
++        }
++
++        Candidate whole = new Candidate(cleaned, null);
++
++        if (parts.size() <= 1) {
++            // No separator ("Red Rising Pierce Brown"): try the whole name as a title
++            // first, then guess that the first or last two words are the author.
++            if (!out.contains(whole)) out.add(whole);
++            String[] w = cleaned.split(" ");
++            if (w.length >= 3 && w.length <= 8) {
++                add(out, join(Arrays.asList(w), 0, w.length - 2), w[w.length - 2] + " " + w[w.length - 1]);
++                add(out, join(Arrays.asList(w), 2, w.length), w[0] + " " + w[1]);
++            }
++            return out;
++        }
++
++        if (!out.contains(whole)) {
++            out.add(whole);
++        }
++        return out;
++    }
++
++    /** An ISBN-10 or ISBN-13 found in the file name, digits only, or null. */
++    public static String extractIsbn(String fileName) {
++        if (fileName == null) return null;
++        java.util.regex.Matcher m = ISBN_LIKE.matcher(stripExtension(fileName.replace('_', ' ')));
++        while (m.find()) {
++            String digits = m.group().replaceAll("[^0-9Xx]", "");
++            if (isIsbnLength(digits)) return digits.toUpperCase(Locale.ROOT);
++        }
++        return null;
++    }
++
++    private static boolean isIsbnLength(String digits) {
++        if (digits.length() == 13) return digits.startsWith("978") || digits.startsWith("979");
++        return digits.length() == 10;
++    }
++
++    private static String removeIsbns(String s) {
++        java.util.regex.Matcher m = ISBN_LIKE.matcher(s);
++        StringBuffer sb = new StringBuffer();
++        while (m.find()) {
++            String digits = m.group().replaceAll("[^0-9Xx]", "");
++            m.appendReplacement(sb, isIsbnLength(digits) ? " " : java.util.regex.Matcher.quoteReplacement(m.group()));
++        }
++        m.appendTail(sb);
++        return sb.toString();
++    }
++
++    // ---------------------------------------------------------------------
++
++    private static String clean(String fileName) {
++        if (fileName == null) return "";
++
++        String s = stripExtension(fileName.trim());
++
++        s = s.replace('_', ' ');
++
++        // "Red.Rising.Pierce.Brown" style: dots used as spaces.
++        if (!s.contains(" ") && s.contains(".")) {
++            s = s.replace('.', ' ');
++        }
++
++        String withoutBrackets = BRACKETS.matcher(s).replaceAll(" ");
++        if (!withoutBrackets.trim().isEmpty()) {
++            s = withoutBrackets;
++        }
++
++        s = SITE_JUNK.matcher(s).replaceAll(" ");
++        s = removeIsbns(s);
++        s = s.replaceAll("[()\\[\\]{}]", " ");
++        s = s.replaceAll("\\s+", " ").trim();
++
++        // Dangling separators left behind by the removals above.
++        s = s.replaceAll("^[\\s\\-\\u2013\\u2014,.]+", "").replaceAll("[\\s\\-\\u2013\\u2014,.]+$", "");
++
++        return s.replaceAll("\\s+", " ").trim();
++    }
++
++    private static String stripExtension(String name) {
++        return KNOWN_EXTENSION.matcher(name).replaceFirst("");
++    }
++
++    private static List<String> splitParts(String cleaned) {
++        List<String> parts = new ArrayList<>();
++
++        String[] byParts = BY_SEPARATOR.split(cleaned, 2);
++        if (byParts.length == 2 && !DASH_SEPARATOR.matcher(cleaned).find()) {
++            // "Red Rising by Pierce Brown": title first, author second.
++            parts.add(byParts[0].trim());
++            parts.add(byParts[1].trim());
++            return parts;
++        }
++
++        for (String p : DASH_SEPARATOR.split(cleaned)) {
++            String t = p.trim();
++            if (!t.isEmpty()) parts.add(t);
++        }
++        return parts;
++    }
++
++    /** 1 to 4 words, each starting with a capital letter, no digits. "Pierce Brown", "Brown, Pierce". */
++    private static boolean looksLikeName(String s) {
++        if (s == null) return false;
++        String t = s.trim();
++        if (t.isEmpty() || t.matches(".*\\d.*")) return false;
++        String[] words = t.replace(",", " ").trim().split("\\s+");
++        if (words.length < 2 || words.length > 4) return false;
++        for (String w : words) {
++            if (w.isEmpty()) continue;
++            char c = w.charAt(0);
++            // Allow short lower-case particles: "de", "van", "von", "la".
++            if (!Character.isUpperCase(c) && w.length() > 3) return false;
++        }
++        return true;
++    }
++
++    /** "Brown, Pierce" becomes "Pierce Brown". Anything else is returned unchanged. */
++    private static String flipLastFirst(String name) {
++        String[] bits = name.split(",");
++        if (bits.length == 2 && !bits[0].trim().isEmpty() && !bits[1].trim().isEmpty()
++                && bits[0].trim().split("\\s+").length <= 2) {
++            return bits[1].trim() + " " + bits[0].trim();
++        }
++        return name.trim();
++    }
++
++    private static void add(List<Candidate> list, String title, String author) {
++        if (title == null || title.trim().isEmpty() || author == null || author.trim().isEmpty()) {
++            return;
++        }
++        Candidate c = new Candidate(
++                title.trim(),
++                Collections.singletonList(flipLastFirst(author)));
++        if (!list.contains(c)) {
++            list.add(c);
++        }
++    }
++
++    private static String join(List<String> parts, int from, int to) {
++        StringBuilder sb = new StringBuilder();
++        for (int i = from; i < to; i++) {
++            if (sb.length() > 0) sb.append(' ');
++            sb.append(parts.get(i));
++        }
++        return sb.toString();
++    }
++}
+diff -ruN a/Oghma/app/src/main/java/com/reader/oghma/api/metadata/GoogleBooksMetadataSource.java b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/GoogleBooksMetadataSource.java
+--- a/Oghma/app/src/main/java/com/reader/oghma/api/metadata/GoogleBooksMetadataSource.java	2026-11-10 21:34:49.437906681 +0000
++++ b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/GoogleBooksMetadataSource.java	2026-11-10 21:34:51.917356903 +0000
+@@ -37,6 +37,12 @@
+                 .searchBooks(query, apiKey, packageName, cert, null, null)
+                 .execute();
+ 
++        int code = response.code();
++        if (code == 403 || code == 429 || code >= 500) {
++            // Rate limit, quota or server trouble: not "no such book". Let the worker retry.
++            throw new IOException("Metadata service returned HTTP " + code);
++        }
++
+         if (!response.isSuccessful() || response.body() == null || response.body().items == null) {
+             return null;
+         }
+diff -ruN a/Oghma/app/src/main/java/com/reader/oghma/api/metadata/OpenLibraryMetadataSource.java b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/OpenLibraryMetadataSource.java
+--- a/Oghma/app/src/main/java/com/reader/oghma/api/metadata/OpenLibraryMetadataSource.java	2026-11-10 21:34:49.437915329 +0000
++++ b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/OpenLibraryMetadataSource.java	2026-11-10 21:34:51.917365145 +0000
+@@ -33,6 +33,12 @@
+                 .search(query, queryTitle, queryAuthor, queryIsbn, "key,title,author_name,subject,isbn", 5)
+                 .execute();
+ 
++        int code = response.code();
++        if (code == 403 || code == 429 || code >= 500) {
++            // Rate limit, quota or server trouble: not "no such book". Let the worker retry.
++            throw new IOException("Metadata service returned HTTP " + code);
++        }
++
+         if (!response.isSuccessful() || response.body() == null || response.body().docs == null) {
+             return null;
+         }
+diff -ruN a/Oghma/app/src/main/java/com/reader/oghma/data/dao/BookDao.java b/Oghma/app/src/main/java/com/reader/oghma/data/dao/BookDao.java
+--- a/Oghma/app/src/main/java/com/reader/oghma/data/dao/BookDao.java	2026-11-10 21:34:49.436839112 +0000
++++ b/Oghma/app/src/main/java/com/reader/oghma/data/dao/BookDao.java	2026-11-10 21:34:51.916470609 +0000
+@@ -37,6 +37,9 @@
+     @Query("UPDATE Book SET tagStatus = :status, tagAttempts = :attempts WHERE bookId = :bookId")
+     void updateTagStatus(int bookId, String status, int attempts);
+ 
++    @Query("UPDATE Book SET title = :title, author = :author WHERE bookId = :bookId")
++    void updateTitleAuthor(int bookId, String title, String author);
++
+     @Query("SELECT * FROM Book WHERE tagStatus = 'PENDING'")
+     List<Book> getPendingTagBooks();
+ }
+\ No newline at end of file
+diff -ruN a/Oghma/app/src/main/java/com/reader/oghma/data/repository/BookRepository.java b/Oghma/app/src/main/java/com/reader/oghma/data/repository/BookRepository.java
+--- a/Oghma/app/src/main/java/com/reader/oghma/data/repository/BookRepository.java	2026-11-10 21:34:49.437010399 +0000
++++ b/Oghma/app/src/main/java/com/reader/oghma/data/repository/BookRepository.java	2026-11-10 21:34:51.916629969 +0000
+@@ -21,6 +21,7 @@
+ 
+ public class BookRepository {
+ 
++    private final OghmaDatabase database;
+     private final BookDao bookDao;
+     private final TagDao tagDao;
+     private final BookTagDao bookTagDao;
+@@ -33,7 +34,7 @@
+             Application application
+     ) {
+ 
+-        OghmaDatabase database =
++        database =
+                 OghmaDatabase.getInstance(
+                         application
+                 );
+@@ -162,7 +163,12 @@
+     // ---------------------------------------------------------
+ 
+     public void replaceAutoTags(int bookId, List<String> displayNames) {
+-        executor.execute(() -> {
++        executor.execute(() -> replaceAutoTagsSync(bookId, displayNames));
++    }
++
++    /** Blocking version, all-or-nothing. Call from a background thread only. */
++    public void replaceAutoTagsSync(int bookId, List<String> displayNames) {
++        database.runInTransaction(() -> {
+             bookTagDao.deleteAutoLinksForBook(bookId);
+             if (displayNames != null) {
+                 for (String name : displayNames) {
+@@ -181,6 +187,10 @@
+         });
+     }
+ 
++    public void updateTitleAuthorSync(int bookId, String title, String author) {
++        bookDao.updateTitleAuthor(bookId, title, author);
++    }
++
+     public void addUserTag(int bookId, String tagName) {
+         executor.execute(() -> {
+             if (tagName == null || tagName.trim().isEmpty()) return;
+diff -ruN a/Oghma/app/src/main/java/com/reader/oghma/library/BookIngestor.java b/Oghma/app/src/main/java/com/reader/oghma/library/BookIngestor.java
+--- a/Oghma/app/src/main/java/com/reader/oghma/library/BookIngestor.java	2026-11-10 21:34:49.437116922 +0000
++++ b/Oghma/app/src/main/java/com/reader/oghma/library/BookIngestor.java	2026-11-10 21:34:51.916717234 +0000
+@@ -78,10 +78,7 @@
+                 // -----------------------------
+ 
+                 File destination =
+-                        new File(
+-                                booksDirectory,
+-                                fileName
+-                        );
++                        new File(booksDirectory, new File(fileName).getName());
+ 
+                 copyFile(
+                         inputStream,
+@@ -96,10 +93,7 @@
+                 Book book =
+                         new Book();
+ 
+-                book.title =
+-                        removeExtension(
+-                                fileName
+-                        );
++                book.title = FilenameParser.cleanTitle(fileName);
+ 
+                 book.author =
+                         "Unknown author";
+@@ -126,7 +120,8 @@
+ 
+                     extractEpubDetails(
+                             destination,
+-                            book
++                            book,
++                            null
+                     );
+ 
+                 } else if (
+@@ -155,10 +150,7 @@
+                                 "";
+                     }
+ 
+-                    long bookId = repository.insertBookSync(
+-                            book
+-                    );
+-                    TagBookWorker.enqueue(context, (int) bookId, false);
++                    insertAndTag(book, null);
+ 
+                 } else {
+ 
+@@ -167,10 +159,7 @@
+ 
+                     book.coverPath = "";
+ 
+-                    long bookId = repository.insertBookSync(
+-                            book
+-                    );
+-                    TagBookWorker.enqueue(context, (int) bookId, false);
++                    insertAndTag(book, null);
+                 }
+ 
+ 
+@@ -228,10 +217,7 @@
+                 // -----------------------------
+ 
+                 File destination =
+-                        new File(
+-                                booksDirectory,
+-                                fileName
+-                        );
++                        new File(booksDirectory, new File(fileName).getName());
+ 
+                 copyFile(
+                         inputStream,
+@@ -250,7 +236,7 @@
+                         title != null
+                                 && !title.trim().isEmpty()
+                                 ? title
+-                                : removeExtension(fileName);
++                                : FilenameParser.cleanTitle(fileName);
+ 
+                 book.author =
+                         author != null
+@@ -280,7 +266,8 @@
+ 
+                     extractEpubDetails(
+                             destination,
+-                            book
++                            book,
++                            categories
+                     );
+ 
+                 } else if (
+@@ -309,41 +296,13 @@
+                                 "";
+                     }
+ 
+-                    long bookId = repository.insertBookSync(
+-                            book
+-                    );
+-
+-                    if (categories != null && !categories.isEmpty()) {
+-                        List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
+-                        if (!tags.isEmpty()) {
+-                            repository.replaceAutoTags((int) bookId, tags);
+-                            repository.updateTagStatusSync((int) bookId, "DONE", 0);
+-                        } else {
+-                            TagBookWorker.enqueue(context, (int) bookId, false);
+-                        }
+-                    } else {
+-                        TagBookWorker.enqueue(context, (int) bookId, false);
+-                    }
++                    insertAndTag(book, categories);
+ 
+                 } else {
+ 
+                     book.coverPath = "";
+ 
+-                    long bookId = repository.insertBookSync(
+-                            book
+-                    );
+-
+-                    if (categories != null && !categories.isEmpty()) {
+-                        List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
+-                        if (!tags.isEmpty()) {
+-                            repository.replaceAutoTags((int) bookId, tags);
+-                            repository.updateTagStatusSync((int) bookId, "DONE", 0);
+-                        } else {
+-                            TagBookWorker.enqueue(context, (int) bookId, false);
+-                        }
+-                    } else {
+-                        TagBookWorker.enqueue(context, (int) bookId, false);
+-                    }
++                    insertAndTag(book, categories);
+                 }
+ 
+ 
+@@ -610,9 +569,41 @@
+         }
+     }
+ 
++    /**
++     * Inserts the book and starts tagging. Must run on [executor] (or another background
++     * thread): Room refuses database access on the main thread.
++     */
++    private void insertAndTag(Book book, List<String> categories) {
++        long id = repository.insertBookSync(book);
++        int bookId = (int) id;
++
++        if (categories != null && !categories.isEmpty()) {
++            List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
++            if (!tags.isEmpty()) {
++                repository.replaceAutoTagsSync(bookId, tags);
++                repository.updateTagStatusSync(bookId, "DONE", 0);
++                return;
++            }
++        }
++
++        TagBookWorker.enqueue(context, bookId, false);
++    }
++
++    private void insertAndTagSafely(Book book, List<String> categories) {
++        // Readium calls back on the main thread. Hop to the background executor first.
++        executor.execute(() -> {
++            try {
++                insertAndTag(book, categories);
++            } catch (Exception e) {
++                e.printStackTrace();
++            }
++        });
++    }
++
+     private void extractEpubDetails(
+             File epubFile,
+-            Book book
++            Book book,
++            List<String> categories
+     ) {
+         File coversDirectory = new File(context.getFilesDir(), "covers");
+         if (!coversDirectory.exists()) {
+@@ -628,10 +619,12 @@
+                 new EpubReaderBridge.DetailsCallback() {
+                     @Override
+                     public void onSuccess(File generatedCover, String parsedTitle, String parsedAuthor, String parsedIdentifier) {
+-                        if (parsedTitle != null && !parsedTitle.trim().isEmpty()) {
++                        // Many downloaded EPUBs carry a junk title ("Unknown", "book1", the
++                        // file name again). Only trust it when it is not obviously junk.
++                        if (isUsableTitle(parsedTitle)) {
+                             book.title = parsedTitle.trim();
+                         }
+-                        if (parsedAuthor != null && !parsedAuthor.trim().isEmpty()) {
++                        if (isUsableAuthor(parsedAuthor)) {
+                             book.author = parsedAuthor.trim();
+                         }
+                         if (generatedCover != null && generatedCover.exists()) {
+@@ -639,20 +632,33 @@
+                         } else {
+                             book.coverPath = "";
+                         }
+-                        long bookId = repository.insertBookSync(book);
+-                        TagBookWorker.enqueue(context, (int) bookId, false);
++                        insertAndTagSafely(book, categories);
+                     }
+ 
+                     @Override
+                     public void onError(String message) {
+                         book.coverPath = "";
+-                        long bookId = repository.insertBookSync(book);
+-                        TagBookWorker.enqueue(context, (int) bookId, false);
++                        insertAndTagSafely(book, categories);
+                     }
+                 }
+         );
+     }
+ 
++    private static boolean isUsableTitle(String t) {
++        if (t == null) return false;
++        String s = t.trim().toLowerCase(java.util.Locale.ROOT);
++        return !s.isEmpty() && !s.equals("unknown") && !s.equals("untitled") && !s.equals("title")
++                && !s.matches("book\\s*\\d*") && !s.matches("[0-9a-f\\-]{20,}");
++    }
++
++    private static boolean isUsableAuthor(String a) {
++        if (a == null) return false;
++        String s = a.trim().toLowerCase(java.util.Locale.ROOT);
++        return !s.isEmpty() && !s.equals("unknown") && !s.equals("unknown author")
++                && !s.equals("author") && !s.equals("calibre") && !s.contains("z-lib")
++                && !s.contains("libgen");
++    }
++
+     private void extractEpubCover(
+             File epubFile,
+             Book book
+diff -ruN a/Oghma/app/src/main/java/com/reader/oghma/library/TagBookWorker.java b/Oghma/app/src/main/java/com/reader/oghma/library/TagBookWorker.java
+--- a/Oghma/app/src/main/java/com/reader/oghma/library/TagBookWorker.java	2026-11-10 21:34:49.437256297 +0000
++++ b/Oghma/app/src/main/java/com/reader/oghma/library/TagBookWorker.java	2026-11-10 21:34:51.916785422 +0000
+@@ -17,10 +17,11 @@
+ 
+ import com.reader.oghma.BuildConfig;
+ import com.reader.oghma.api.metadata.BookMetadataService;
++import com.reader.oghma.api.metadata.FilenameParser;
+ import com.reader.oghma.data.entity.Book;
+ import com.reader.oghma.data.repository.BookRepository;
+ 
+-import java.util.Arrays;
++import java.util.ArrayList;
+ import java.util.List;
+ import java.util.concurrent.TimeUnit;
+ 
+@@ -78,35 +79,81 @@
+             return Result.success();
+         }
+ 
+-        List<String> authors = null;
+-        if (book.author != null && !"Unknown author".equalsIgnoreCase(book.author.trim())) {
+-            authors = Arrays.asList(book.author.split("[,&]"));
++        // Build the searches to try, best first.
++        //  - EPUBs with real metadata: title + author as stored.
++        //  - Files named like downloads ("Author - Title (z-lib.org)"): dig the title and
++        //    author out of the name, trying both orders, then ISBN if the name holds one.
++        boolean authorKnown = book.author != null
++                && !"Unknown author".equalsIgnoreCase(book.author.trim());
++
++        String isbn = FilenameParser.extractIsbn(book.title);
++        if (isbn == null && book.filePath != null) {
++            isbn = FilenameParser.extractIsbn(new java.io.File(book.filePath).getName());
+         }
+ 
++        List<FilenameParser.Candidate> candidates = new ArrayList<>();
++        if (authorKnown) {
++            List<String> authors = new ArrayList<>();
++            for (String a : book.author.split("[,&]")) {
++                if (!a.trim().isEmpty()) authors.add(a.trim());
++            }
++            candidates.add(new FilenameParser.Candidate(book.title, authors));
++        } else {
++            candidates.addAll(FilenameParser.candidates(book.title));
++        }
++
++        BookMetadataService service = new BookMetadataService();
+         String apiKey = BuildConfig.GOOGLE_BOOKS_API_KEY;
+         String packageName = getApplicationContext().getPackageName();
+         String cert = BuildConfig.GOOGLE_BOOKS_CERT;
+ 
+-        BookMetadataService service = new BookMetadataService();
+-        BookMetadataService.Result metadataResult = service.fetchAndNormalizeTags(
+-                book.title, authors, null, apiKey, packageName, cert
+-        );
++        BookMetadataService.Result found = null;
++        boolean networkProblem = false;
++
++        try {
++            if (isbn != null) {
++                BookMetadataService.Result r = service.fetchAndNormalizeTags(
++                        null, null, isbn, apiKey, packageName, cert);
++                if (r.status == BookMetadataService.Status.SUCCESS) found = r;
++                else if (r.status == BookMetadataService.Status.NETWORK_ERROR) networkProblem = true;
++            }
++
++            for (FilenameParser.Candidate c : candidates) {
++                if (found != null) break;
++                BookMetadataService.Result r = service.fetchAndNormalizeTags(
++                        c.title, c.authors, null, apiKey, packageName, cert);
++                if (r.status == BookMetadataService.Status.SUCCESS) found = r;
++                else if (r.status == BookMetadataService.Status.NETWORK_ERROR) networkProblem = true;
++            }
++        } catch (Exception e) {
++            // Bad JSON, unexpected response, anything else: treat as a failed attempt.
++            networkProblem = true;
++        }
++
++        if (found != null) {
++            repository.replaceAutoTagsSync(bookId, found.tags);
++
++            // The file name was all we had. Replace it with the catalogue title/author.
++            if (!authorKnown
++                    && found.matchedTitle != null && !found.matchedTitle.trim().isEmpty()
++                    && !found.matchedAuthors.isEmpty()) {
++                repository.updateTitleAuthorSync(
++                        bookId,
++                        found.matchedTitle.trim(),
++                        android.text.TextUtils.join(", ", found.matchedAuthors));
++            }
+ 
+-        if (metadataResult.status == BookMetadataService.Status.SUCCESS) {
+-            repository.replaceAutoTags(bookId, metadataResult.tags);
+             repository.updateTagStatusSync(bookId, "DONE", book.tagAttempts);
+             return Result.success();
+-        } else if (metadataResult.status == BookMetadataService.Status.NOT_FOUND) {
++        }
++
++        if (!networkProblem) {
+             repository.updateTagStatusSync(bookId, "NOT_FOUND", book.tagAttempts);
+             return Result.success();
+-        } else {
+-            int newAttempts = book.tagAttempts + 1;
+-            repository.updateTagStatusSync(bookId, "FAILED", newAttempts);
+-            if (newAttempts < 3) {
+-                return Result.retry();
+-            } else {
+-                return Result.failure();
+-            }
+         }
++
++        int newAttempts = book.tagAttempts + 1;
++        repository.updateTagStatusSync(bookId, "FAILED", newAttempts);
++        return newAttempts < 3 ? Result.retry() : Result.failure();
+     }
+ }
+diff -ruN a/Oghma/app/src/test/java/com/reader/oghma/api/metadata/FilenameParserTest.java b/Oghma/app/src/test/java/com/reader/oghma/api/metadata/FilenameParserTest.java
+--- a/Oghma/app/src/test/java/com/reader/oghma/api/metadata/FilenameParserTest.java	1970-01-01 00:00:00.000000000 +0000
++++ b/Oghma/app/src/test/java/com/reader/oghma/api/metadata/FilenameParserTest.java	2026-11-10 21:34:51.922622964 +0000
+@@ -0,0 +1,60 @@
++package com.reader.oghma.api.metadata;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertNull;
++import static org.junit.Assert.assertTrue;
++
++import org.junit.Test;
++
++import java.util.List;
++
++public class FilenameParserTest {
++
++    private static FilenameParser.Candidate first(String name) {
++        List<FilenameParser.Candidate> c = FilenameParser.candidates(name);
++        assertTrue(!c.isEmpty());
++        return c.get(0);
++    }
++
++    @Test
++    public void authorDashTitleWithSiteJunk() {
++        FilenameParser.Candidate c = first("Pierce_Brown_-_Red_Rising_(z-lib.org).epub");
++        assertEquals("Red Rising", c.title);
++        assertEquals("Pierce Brown", c.authors.get(0));
++    }
++
++    @Test
++    public void lastCommaFirstIsFlipped() {
++        FilenameParser.Candidate c = first("Brown, Pierce - Red Rising (Red Rising Saga, #1) (2014).epub");
++        assertEquals("Red Rising", c.title);
++        assertEquals("Pierce Brown", c.authors.get(0));
++    }
++
++    @Test
++    public void bothOrdersAreOffered() {
++        List<FilenameParser.Candidate> c = FilenameParser.candidates("Red Rising - Pierce Brown.epub");
++        boolean found = false;
++        for (FilenameParser.Candidate x : c) {
++            if (x.title.equals("Red Rising") && x.authors != null && x.authors.get(0).equals("Pierce Brown")) found = true;
++        }
++        assertTrue(found);
++    }
++
++    @Test
++    public void titleOnly() {
++        FilenameParser.Candidate c = first("Dune.epub");
++        assertEquals("Dune", c.title);
++        assertNull(c.authors);
++    }
++
++    @Test
++    public void isbnFromName() {
++        assertEquals("9780345539786", FilenameParser.extractIsbn("978-0-345-53978-6.epub"));
++        assertNull(FilenameParser.extractIsbn("Red Rising.epub"));
++    }
++
++    @Test
++    public void cleanTitleStripsNoise() {
++        assertEquals("Pierce Brown - Red Rising", FilenameParser.cleanTitle("Pierce_Brown_-_Red_Rising_(z-lib.org).epub"));
++    }
++}

@@ -1,0 +1,178 @@
+diff -ruN a2/Oghma/app/src/main/java/com/reader/oghma/api/metadata/TagNormalizer.java b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/TagNormalizer.java
+--- a2/Oghma/app/src/main/java/com/reader/oghma/api/metadata/TagNormalizer.java	2026-11-11 08:36:05.068686931 +0000
++++ b/Oghma/app/src/main/java/com/reader/oghma/api/metadata/TagNormalizer.java	2026-11-11 08:36:04.592600397 +0000
+@@ -30,6 +30,8 @@
+     ));
+ 
+     private static final Map<String, String> ALIAS_MAP = new HashMap<>();
++    private static final int MAX_TAGS = 12;
++    private static final Map<String, String> PARENT = new HashMap<>();
+ 
+     static {
+         // Science Fiction
+@@ -159,6 +161,65 @@
+         // Politics
+         addAlias("politics", "Politics");
+         addAlias("political science", "Politics");
++
++        // ---- Subgenres and themes. Each also adds its parent genre. ----
++        addSub("epic fantasy", "Epic Fantasy", "Fantasy");
++        addSub("high fantasy", "High Fantasy", "Fantasy");
++        addSub("urban fantasy", "Urban Fantasy", "Fantasy");
++        addSub("dark fantasy", "Dark Fantasy", "Fantasy");
++        addSub("sword and sorcery", "Sword and Sorcery", "Fantasy");
++        addSub("fairy tales", "Fairy Tales", "Fantasy");
++        addSub("dragons", "Dragons", "Fantasy");
++        addSub("wizards", "Wizards", "Fantasy");
++        addSub("witches", "Witches", "Fantasy");
++        addSub("vampires", "Vampires", "Horror");
++        addSub("paranormal", "Paranormal", "Fantasy");
++        addSub("magic", "Magic", "Fantasy");
++        addSub("mythology", "Mythology", null);
++
++        addSub("military science fiction", "Military Science Fiction", "Science Fiction");
++        addSub("hard science fiction", "Hard Science Fiction", "Science Fiction");
++        addSub("space warfare", "Space Warfare", "Science Fiction");
++        addSub("space colonies", "Space Colonization", "Science Fiction");
++        addSub("space colonization", "Space Colonization", "Science Fiction");
++        addSub("time travel", "Time Travel", "Science Fiction");
++        addSub("post-apocalyptic", "Post-Apocalyptic", "Science Fiction");
++        addSub("apocalyptic", "Post-Apocalyptic", "Science Fiction");
++        addSub("alternative history", "Alternate History", "Science Fiction");
++        addSub("alternate history", "Alternate History", "Science Fiction");
++        addSub("artificial intelligence", "Artificial Intelligence", "Science Fiction");
++        addSub("extraterrestrial", "Aliens", "Science Fiction");
++        addSub("aliens", "Aliens", "Science Fiction");
++        addSub("robots", "Robots", "Science Fiction");
++        addSub("steampunk", "Steampunk", "Science Fiction");
++        addSub("genetic engineering", "Genetic Engineering", "Science Fiction");
++
++        addSub("cozy mystery", "Cozy Mystery", "Mystery");
++        addSub("police procedural", "Police Procedural", "Mystery");
++        addSub("true crime", "True Crime", "Nonfiction");
++        addSub("espionage", "Espionage", "Thriller");
++        addSub("political fiction", "Political Fiction", "Fiction");
++        addSub("magical realism", "Magical Realism", "Literary Fiction");
++        addSub("satire", "Satire", "Humor");
++        addSub("coming of age", "Coming of Age", null);
++        addSub("rebellion", "Rebellion", null);
++        addSub("social classes", "Class Conflict", null);
++        addSub("revenge", "Revenge", null);
++        addSub("survival", "Survival", null);
++        addSub("warfare", "War", null);
++        addSub("military", "Military", null);
++        addSub("classics", "Classics", null);
++        addSub("short stories", "Short Stories", "Fiction");
++        addSub("children's", "Children's", null);
++        addSub("love stories", "Romance", null);
++    }
++
++    /** Subgenre or theme: maps to its own tag, and also adds a parent genre if given. */
++    private static void addSub(String key, String canonical, String parent) {
++        addAlias(key, canonical);
++        if (parent != null) {
++            PARENT.put(canonical, parent);
++        }
+     }
+ 
+     private static void addAlias(String key, String canonical) {
+@@ -187,14 +248,14 @@
+ 
+             // Direct map lookup
+             if (ALIAS_MAP.containsKey(key)) {
+-                result.add(ALIAS_MAP.get(key));
++                addWithParent(result, ALIAS_MAP.get(key));
+                 continue;
+             }
+ 
+-            // Keyword match in ALIAS_MAP keys
+-            String matchedCanonical = findKeywordMatch(key);
+-            if (matchedCanonical != null) {
+-                result.add(matchedCanonical);
++            // Keyword matches: a raw tag like "Epic fantasy, American" can hit several aliases.
++            Set<String> matches = findKeywordMatches(key);
++            if (!matches.isEmpty()) {
++                for (String m : matches) addWithParent(result, m);
+                 continue;
+             }
+ 
+@@ -214,9 +275,9 @@
+             return 0; // maintain insertion order otherwise
+         });
+ 
+-        // Cap at 8
+-        if (sorted.size() > 8) {
+-            return new ArrayList<>(sorted.subList(0, 8));
++        // Cap at 12
++        if (sorted.size() > MAX_TAGS) {
++            return new ArrayList<>(sorted.subList(0, MAX_TAGS));
+         }
+ 
+         return sorted;
+@@ -250,14 +311,35 @@
+         return false;
+     }
+ 
+-    private static String findKeywordMatch(String key) {
+-        for (Map.Entry<String, String> entry : ALIAS_MAP.entrySet()) {
+-            String alias = entry.getKey();
++    private static void addWithParent(Set<String> out, String canonical) {
++        out.add(canonical);
++        String parent = PARENT.get(canonical);
++        if (parent != null) out.add(parent);
++    }
++
++    /**
++     * Every alias contained in the key, except aliases that are part of a longer matching
++     * alias ("history" inside "alternative history", "fantasy" inside "epic fantasy").
++     */
++    private static Set<String> findKeywordMatches(String key) {
++        java.util.TreeSet<String> hits = new java.util.TreeSet<>();
++        for (String alias : ALIAS_MAP.keySet()) {
+             if (alias.length() > 3 && key.contains(alias)) {
+-                return entry.getValue();
++                hits.add(alias);
++            }
++        }
++        Set<String> out = new LinkedHashSet<>();
++        for (String a : hits) {
++            boolean covered = false;
++            for (String other : hits) {
++                if (!other.equals(a) && other.contains(a)) {
++                    covered = true;
++                    break;
++                }
+             }
++            if (!covered) out.add(ALIAS_MAP.get(a));
+         }
+-        return null;
++        return out;
+     }
+ 
+     private static String toTitleCase(String text) {
+diff -ruN a2/Oghma/app/src/test/java/com/reader/oghma/api/metadata/TagNormalizerTest.java b/Oghma/app/src/test/java/com/reader/oghma/api/metadata/TagNormalizerTest.java
+--- a2/Oghma/app/src/test/java/com/reader/oghma/api/metadata/TagNormalizerTest.java	2026-11-11 08:36:05.128686933 +0000
++++ b/Oghma/app/src/test/java/com/reader/oghma/api/metadata/TagNormalizerTest.java	2026-11-11 08:36:04.596075539 +0000
+@@ -14,10 +14,11 @@
+     public void testAliasMapping() {
+         List<String> raw = Arrays.asList("sci-fi", "dystopian fiction", "epic fantasy");
+         List<String> mapped = TagNormalizer.map(raw);
+-        assertEquals(3, mapped.size());
++        assertEquals(4, mapped.size());
+         assertEquals("Science Fiction", mapped.get(0));
+         assertEquals("Dystopia", mapped.get(1));
+-        assertEquals("Fantasy", mapped.get(2));
++        assertEquals("Epic Fantasy", mapped.get(2));
++        assertEquals("Fantasy", mapped.get(3));
+     }
+ 
+     @Test
+@@ -35,7 +36,7 @@
+                 "thriller", "romance", "adventure", "history", "poetry", "fiction"
+         );
+         List<String> mapped = TagNormalizer.map(raw);
+-        assertTrue(mapped.size() <= 8);
++        assertTrue(mapped.size() <= 12);
+         // Ensure "Science Fiction" appears once
+         long sciFiCount = mapped.stream().filter(t -> t.equals("Science Fiction")).count();
+         assertEquals(1, sciFiCount);
