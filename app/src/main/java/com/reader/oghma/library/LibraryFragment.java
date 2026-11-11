@@ -193,6 +193,12 @@ public class LibraryFragment extends Fragment {
     }
 
     @Override
+    public void onDestroyView() {
+        searchRequestId++;
+        super.onDestroyView();
+    }
+
+    @Override
     public void onDestroy() {
         searchRequestId++;
         downloadExecutor.shutdown();
@@ -2570,6 +2576,9 @@ public class LibraryFragment extends Fragment {
                         }
 
                         if (!response.isSuccessful() || response.body() == null) {
+                            if (response.errorBody() != null) {
+                                response.errorBody().close();
+                            }
                             postDownloadMessage(
                                     "EPUB download failed (HTTP " + response.code() + ")."
                             );
