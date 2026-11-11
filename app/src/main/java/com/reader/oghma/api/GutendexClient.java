@@ -10,8 +10,10 @@ public class GutendexClient {
 
     private static final OkHttpClient okHttpClient = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(75, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build();
 
     private static final Retrofit retrofit = new Retrofit.Builder()
