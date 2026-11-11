@@ -183,6 +183,8 @@ public class LibraryFragment extends Fragment {
 
     private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
 
+    private static final int MAX_GUTENDEX_RETRIES = 1;
+
 
     // =========================================================
     // Constructor
@@ -2315,15 +2317,30 @@ public class LibraryFragment extends Fragment {
             int requestId,
             Runnable onComplete
     ) {
+        fetchGutendexPageAttempt(
+                query, page, maxPages, accumulated, requestId, onComplete, 0
+        );
+    }
+
+    private void fetchGutendexPageAttempt(
+            String query,
+            int page,
+            int maxPages,
+            List<GutendexBook> accumulated,
+            int requestId,
+            Runnable onComplete,
+            int retryAttempt
+    ) {
         if (!isAdded() || requestId != searchRequestId) {
             onComplete.run();
             return;
         }
 
         GutendexClient.getApi()
-                // Retrieve the matching catalogue records first. Copyright and EPUB
-                // eligibility are checked locally from each returned record's metadata.
-                .searchBooks(query, null, null, page)
+                // Ask the API for only US-public-domain records with an EPUB format.
+                // "application/epub" is a documented MIME prefix; the exact EPUB MIME
+                // entry is still checked locally before a result becomes downloadable.
+                .searchBooks(query, "false", "application/epub", page)
                 .enqueue(new Callback<GutendexResponse>() {
                     @Override
                     public void onResponse(
@@ -2337,20 +2354,31 @@ public class LibraryFragment extends Fragment {
 
                         if (!response.isSuccessful() || response.body() == null) {
                             String errorDetails = "";
-                            try {
-                                if (response.errorBody() != null) {
-                                    errorDetails = response.errorBody().string();
+                            try (ResponseBody errorBody = response.errorBody()) {
+                                if (errorBody != null) {
+                                    errorDetails = errorBody.string();
                                 }
                             } catch (Exception e) {
                                 Log.w("GutendexSearch", "Could not read error response", e);
                             }
+
                             Log.e(
                                     "GutendexSearch",
                                     "HTTP " + response.code()
                                             + " for query '" + query + "', page " + page
                                             + ". " + errorDetails
                             );
-                            onComplete.run();
+
+                            if (isRetryableGutendexStatus(response.code())
+                                    && retryAttempt < MAX_GUTENDEX_RETRIES) {
+                                scheduleGutendexRetry(
+                                        query, page, maxPages, accumulated, requestId,
+                                        onComplete, retryAttempt + 1,
+                                        "HTTP " + response.code()
+                                );
+                            } else {
+                                onComplete.run();
+                            }
                             return;
                         }
 
@@ -2363,6 +2391,7 @@ public class LibraryFragment extends Fragment {
                                             + ", results=" + body.results.size()
                                             + ", total=" + body.count
                             );
+
                             for (GutendexBook result : body.results) {
                                 if (result != null) {
                                     Log.d(
@@ -2407,9 +2436,61 @@ public class LibraryFragment extends Fragment {
                                 "Request failed for query '" + query + "', page " + page,
                                 t
                         );
-                        onComplete.run();
+
+                        if (requestId == searchRequestId
+                                && isAdded()
+                                && retryAttempt < MAX_GUTENDEX_RETRIES) {
+                            scheduleGutendexRetry(
+                                    query, page, maxPages, accumulated, requestId,
+                                    onComplete, retryAttempt + 1,
+                                    t.getClass().getSimpleName()
+                            );
+                        } else {
+                            onComplete.run();
+                        }
                     }
                 });
+    }
+
+    private void scheduleGutendexRetry(
+            String query,
+            int page,
+            int maxPages,
+            List<GutendexBook> accumulated,
+            int requestId,
+            Runnable onComplete,
+            int nextAttempt,
+            String reason
+    ) {
+        long delayMs = 1500L * nextAttempt;
+        Log.w(
+                "GutendexSearch",
+                "Retrying query '" + query + "', page " + page
+                        + " in " + delayMs + "ms. Attempt "
+                        + nextAttempt + " of " + MAX_GUTENDEX_RETRIES
+                        + ". Reason: " + reason
+        );
+
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                () -> {
+                    if (!isAdded() || requestId != searchRequestId) {
+                        onComplete.run();
+                        return;
+                    }
+
+                    fetchGutendexPageAttempt(
+                            query, page, maxPages, accumulated, requestId,
+                            onComplete, nextAttempt
+                    );
+                },
+                delayMs
+        );
+    }
+
+    private boolean isRetryableGutendexStatus(int statusCode) {
+        return statusCode == 408
+                || statusCode == 429
+                || statusCode >= 500;
     }
 
     private void processCombinedResults(
