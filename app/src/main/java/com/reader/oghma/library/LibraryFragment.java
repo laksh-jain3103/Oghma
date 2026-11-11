@@ -1,5 +1,6 @@
 package com.reader.oghma.library;
 
+import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -47,7 +48,6 @@ import com.reader.oghma.api.GutendexClient;
 import com.reader.oghma.api.model.GutendexResponse;
 import com.reader.oghma.api.model.GutendexBook;
 import android.content.Intent;
-import android.net.Uri;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -61,7 +61,8 @@ import java.util.Locale;
 import java.util.Comparator;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-import androidx.recyclerview.widget.RecyclerView;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 
 import com.reader.oghma.data.entity.Bookmark;
@@ -165,6 +166,8 @@ public class LibraryFragment extends Fragment {
 
     private String searchQuery = "";
 
+    private int searchRequestId = 0;
+
     private int sortMode = 0;
 
     private boolean sortDescending = false;
@@ -178,6 +181,8 @@ public class LibraryFragment extends Fragment {
 
     private BookIngestor bookIngestor;
 
+    private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
+
 
     // =========================================================
     // Constructor
@@ -186,6 +191,14 @@ public class LibraryFragment extends Fragment {
     public LibraryFragment() {
         // Required empty constructor
     }
+
+    @Override
+    public void onDestroy() {
+        searchRequestId++;
+        downloadExecutor.shutdown();
+        super.onDestroy();
+    }
+
 
 
     // =========================================================
@@ -2149,28 +2162,44 @@ public class LibraryFragment extends Fragment {
     }
 
     private void downloadUnifiedBook(UnifiedBookItem book) {
-        String downloadUrl = book.downloadUrl;
-        if (downloadUrl == null || downloadUrl.isEmpty()) {
-            Toast.makeText(requireContext(), "This book is not available for download.", Toast.LENGTH_SHORT).show();
+        if (book == null || book.source != UnifiedBookItem.Source.GUTENBERG
+                || book.gutendexBook == null) {
+            if (book != null && book.previewUrl != null && !book.previewUrl.isEmpty()) {
+                openGoogleBooksPreview(book.previewUrl);
+            } else {
+                Toast.makeText(requireContext(), "This book is not available for EPUB download.", Toast.LENGTH_SHORT).show();
+            }
             return;
         }
 
-        String title = book.title != null ? book.title : "Unknown book";
-        String author = book.author != null ? book.author : "Unknown author";
-        String fileName = createSafeBookFileName(title, ".epub");
+        String downloadUrl = book.downloadUrl;
+        if (downloadUrl == null || downloadUrl.isEmpty()) {
+            downloadUrl = book.gutendexBook.getEpubDownloadUrl();
+        }
+        if (downloadUrl == null || downloadUrl.isEmpty()) {
+            Toast.makeText(requireContext(), "No EPUB download is listed for this book.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (downloadUrl.startsWith("http://")) {
+            downloadUrl = downloadUrl.replaceFirst("http://", "https://");
+        }
 
-        downloadGoogleBookFromUrl(downloadUrl, fileName, "epub", title, author, book.gutendexBook != null ? String.valueOf(book.gutendexBook.id) : (book.googleBookItem != null ? book.googleBookItem.id : "unified"));
+        String title = book.title != null && !book.title.trim().isEmpty()
+                ? book.title : "Unknown book";
+        String author = book.author != null && !book.author.trim().isEmpty()
+                ? book.author : "Unknown author";
+        String uniqueTitle = title + " - PG" + book.gutendexBook.id
+                + "-" + System.currentTimeMillis();
+        String fileName = createSafeBookFileName(uniqueTitle, ".epub");
+
+        downloadGutendexEpub(downloadUrl, fileName, title, author);
     }
 
     private void searchGoogleBooks(String query) {
+        final int requestId = ++searchRequestId;
 
-        googleBooksProgress.setVisibility(
-                View.VISIBLE
-        );
-
-        googleBooksEmptyText.setVisibility(
-                View.GONE
-        );
+        googleBooksProgress.setVisibility(View.VISIBLE);
+        googleBooksEmptyText.setVisibility(View.GONE);
 
         List<GoogleBookItem> googleBooksList = new ArrayList<>();
         List<GutendexBook> gutendexBooksList = new ArrayList<>();
@@ -2179,41 +2208,42 @@ public class LibraryFragment extends Fragment {
         final boolean[] gutendexFinished = {false};
 
         Runnable checkComplete = () -> {
-            if (googleFinished[0] && gutendexFinished[0]) {
-                if (!isAdded()) return;
-                googleBooksProgress.setVisibility(View.GONE);
-                processCombinedResults(googleBooksList, gutendexBooksList);
+            if (requestId != searchRequestId || !googleFinished[0] || !gutendexFinished[0]) {
+                return;
             }
+            if (!isAdded()) {
+                return;
+            }
+            googleBooksProgress.setVisibility(View.GONE);
+            processCombinedResults(googleBooksList, gutendexBooksList);
         };
 
-        // 1. Fetch Google Books (with pagination up to 80 items)
-        fetchGoogleBooksPages(query, 0, 40, googleBooksList, () -> {
+        // Google Books supplies broad discovery results and preview links.
+        fetchGoogleBooksPages(query, 0, 40, googleBooksList, requestId, () -> {
             googleFinished[0] = true;
             checkComplete.run();
         });
 
-        // 2. Fetch Gutendex Books
-        GutendexClient.getApi().searchBooks(query).enqueue(new Callback<GutendexResponse>() {
-            @Override
-            public void onResponse(@NonNull Call<GutendexResponse> call, @NonNull Response<GutendexResponse> response) {
-                if (!isAdded()) return;
-                if (response.isSuccessful() && response.body() != null && response.body().results != null) {
-                    gutendexBooksList.addAll(response.body().results);
-                }
-                gutendexFinished[0] = true;
-                checkComplete.run();
-            }
-
-            @Override
-            public void onFailure(@NonNull Call<GutendexResponse> call, @NonNull Throwable t) {
-                if (!isAdded()) return;
-                gutendexFinished[0] = true;
-                checkComplete.run();
-            }
+        // Gutendex supplies EPUB links for records explicitly marked public domain in the US.
+        fetchGutendexPages(query, 1, 3, gutendexBooksList, requestId, () -> {
+            gutendexFinished[0] = true;
+            checkComplete.run();
         });
     }
 
-    private void fetchGoogleBooksPages(String query, int startIndex, int maxResults, List<GoogleBookItem> accumulated, Runnable onComplete) {
+    private void fetchGoogleBooksPages(
+            String query,
+            int startIndex,
+            int maxResults,
+            List<GoogleBookItem> accumulated,
+            int requestId,
+            Runnable onComplete
+    ) {
+        if (!isAdded() || requestId != searchRequestId) {
+            onComplete.run();
+            return;
+        }
+
         GoogleBooksClient.getApi()
                 .searchBooks(
                         query,
@@ -2225,8 +2255,11 @@ public class LibraryFragment extends Fragment {
                 )
                 .enqueue(new Callback<GoogleBooksResponse>() {
                     @Override
-                    public void onResponse(@NonNull Call<GoogleBooksResponse> call, @NonNull Response<GoogleBooksResponse> response) {
-                        if (!isAdded()) {
+                    public void onResponse(
+                            @NonNull Call<GoogleBooksResponse> call,
+                            @NonNull Response<GoogleBooksResponse> response
+                    ) {
+                        if (!isAdded() || requestId != searchRequestId) {
                             onComplete.run();
                             return;
                         }
@@ -2246,80 +2279,180 @@ public class LibraryFragment extends Fragment {
                         }
 
                         int nextIndex = startIndex + maxResults;
-                        if (nextIndex < body.totalItems && nextIndex < 80 && body.items != null && !body.items.isEmpty()) {
-                            fetchGoogleBooksPages(query, nextIndex, maxResults, accumulated, onComplete);
+                        if (nextIndex < body.totalItems
+                                && nextIndex < 80
+                                && body.items != null
+                                && !body.items.isEmpty()) {
+                            fetchGoogleBooksPages(
+                                    query, nextIndex, maxResults, accumulated, requestId, onComplete
+                            );
                         } else {
                             onComplete.run();
                         }
                     }
 
                     @Override
-                    public void onFailure(@NonNull Call<GoogleBooksResponse> call, @NonNull Throwable t) {
+                    public void onFailure(
+                            @NonNull Call<GoogleBooksResponse> call,
+                            @NonNull Throwable t
+                    ) {
                         onComplete.run();
                     }
                 });
     }
 
-    private void processCombinedResults(List<GoogleBookItem> googleItems, List<GutendexBook> gutendexItems) {
-        List<UnifiedBookItem> unifiedList = new ArrayList<>();
-        List<String> seenNormalizedKeys = new ArrayList<>();
+    private void fetchGutendexPages(
+            String query,
+            int page,
+            int maxPages,
+            List<GutendexBook> accumulated,
+            int requestId,
+            Runnable onComplete
+    ) {
+        if (!isAdded() || requestId != searchRequestId) {
+            onComplete.run();
+            return;
+        }
 
-        // Process Gutendex first (prefer verified Gutenberg EPUB download)
+        GutendexClient.getApi()
+                .searchBooks(query, "false", "application/epub+zip", page)
+                .enqueue(new Callback<GutendexResponse>() {
+                    @Override
+                    public void onResponse(
+                            @NonNull Call<GutendexResponse> call,
+                            @NonNull Response<GutendexResponse> response
+                    ) {
+                        if (!isAdded() || requestId != searchRequestId) {
+                            onComplete.run();
+                            return;
+                        }
+
+                        if (!response.isSuccessful() || response.body() == null) {
+                            onComplete.run();
+                            return;
+                        }
+
+                        GutendexResponse body = response.body();
+                        if (body.results != null) {
+                            accumulated.addAll(body.results);
+                        }
+
+                        if (body.next != null
+                                && page < maxPages
+                                && body.results != null
+                                && !body.results.isEmpty()) {
+                            fetchGutendexPages(
+                                    query, page + 1, maxPages, accumulated, requestId, onComplete
+                            );
+                        } else {
+                            onComplete.run();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(
+                            @NonNull Call<GutendexResponse> call,
+                            @NonNull Throwable t
+                    ) {
+                        onComplete.run();
+                    }
+                });
+    }
+
+    private void processCombinedResults(
+            List<GoogleBookItem> googleItems,
+            List<GutendexBook> gutendexItems
+    ) {
+        List<UnifiedBookItem> unifiedList = new ArrayList<>();
+
+        // Add Gutenberg editions first because these have the actual EPUB files.
         if (gutendexItems != null) {
             for (GutendexBook gBook : gutendexItems) {
-                if (gBook == null) continue;
-                if (gBook.copyright != null && gBook.copyright) continue;
+                if (gBook == null || !Boolean.FALSE.equals(gBook.copyright)) {
+                    continue;
+                }
 
                 String epubUrl = gBook.getEpubDownloadUrl();
-                if (epubUrl == null || epubUrl.isEmpty()) continue;
+                if (epubUrl == null || epubUrl.trim().isEmpty()) {
+                    continue;
+                }
 
                 UnifiedBookItem item = new UnifiedBookItem();
                 item.source = UnifiedBookItem.Source.GUTENBERG;
                 item.title = gBook.title != null ? gBook.title : "Unknown title";
-                
+
                 String authorStr = "Unknown author";
                 if (gBook.authors != null && !gBook.authors.isEmpty()) {
                     List<String> names = new ArrayList<>();
-                    for (GutendexBook.Author a : gBook.authors) {
-                        if (a != null && a.name != null) names.add(a.name);
+                    for (GutendexBook.Author author : gBook.authors) {
+                        if (author != null && author.name != null && !author.name.trim().isEmpty()) {
+                            names.add(author.name);
+                        }
                     }
-                    if (!names.isEmpty()) authorStr = String.join(", ", names);
+                    if (!names.isEmpty()) {
+                        authorStr = String.join(", ", names);
+                    }
                 }
+
                 item.author = authorStr;
                 item.publishedDate = "";
                 item.coverUrl = gBook.getCoverUrl();
                 item.isDownloadable = true;
                 item.downloadUrl = epubUrl;
                 item.gutendexBook = gBook;
-
-                String normKey = normalizeTitleAuthor(item.title, item.author);
-                seenNormalizedKeys.add(normKey);
                 unifiedList.add(item);
             }
         }
 
-        // Process Google Books items
+        // Google Books remains a discovery and preview source. When the same
+        // edition exists in Gutenberg, merge its metadata into that entry.
         if (googleItems != null) {
             for (GoogleBookItem gbItem : googleItems) {
-                if (gbItem == null || gbItem.volumeInfo == null) continue;
+                if (gbItem == null || gbItem.volumeInfo == null) {
+                    continue;
+                }
 
-                String title = gbItem.volumeInfo.title != null ? gbItem.volumeInfo.title : "Unknown title";
+                String title = gbItem.volumeInfo.title != null
+                        ? gbItem.volumeInfo.title : "Unknown title";
+
                 String author = "Unknown author";
                 if (gbItem.volumeInfo.authors != null && !gbItem.volumeInfo.authors.isEmpty()) {
                     author = String.join(", ", gbItem.volumeInfo.authors);
                 }
 
-                String normKey = normalizeTitleAuthor(title, author);
-
-                boolean isDuplicate = false;
-                for (String seenKey : seenNormalizedKeys) {
-                    if (seenKey.equals(normKey) || seenKey.contains(normKey) || normKey.contains(seenKey)) {
-                        isDuplicate = true;
-                        break;
-                    }
+                String coverUrl = null;
+                if (gbItem.volumeInfo.imageLinks != null) {
+                    coverUrl = gbItem.volumeInfo.imageLinks.thumbnail != null
+                            ? gbItem.volumeInfo.imageLinks.thumbnail
+                            : gbItem.volumeInfo.imageLinks.smallThumbnail;
                 }
 
-                if (isDuplicate) {
+                String previewUrl = null;
+                if (gbItem.accessInfo != null) {
+                    previewUrl = gbItem.accessInfo.webReaderLink;
+                }
+                if ((previewUrl == null || previewUrl.isEmpty())
+                        && gbItem.volumeInfo.previewLink != null) {
+                    previewUrl = gbItem.volumeInfo.previewLink;
+                }
+
+                UnifiedBookItem matchingGutenberg = findMatchingGutendexBook(
+                        unifiedList, title, author
+                );
+
+                if (matchingGutenberg != null) {
+                    if (matchingGutenberg.coverUrl == null || matchingGutenberg.coverUrl.isEmpty()) {
+                        matchingGutenberg.coverUrl = coverUrl;
+                    }
+                    if (matchingGutenberg.publishedDate == null
+                            || matchingGutenberg.publishedDate.isEmpty()) {
+                        matchingGutenberg.publishedDate = gbItem.volumeInfo.publishedDate;
+                    }
+                    if (matchingGutenberg.previewUrl == null
+                            || matchingGutenberg.previewUrl.isEmpty()) {
+                        matchingGutenberg.previewUrl = previewUrl;
+                    }
+                    matchingGutenberg.googleBookItem = gbItem;
                     continue;
                 }
 
@@ -2327,31 +2460,13 @@ public class LibraryFragment extends Fragment {
                 item.source = UnifiedBookItem.Source.GOOGLE_BOOKS;
                 item.title = title;
                 item.author = author;
-                item.publishedDate = gbItem.volumeInfo.publishedDate != null ? gbItem.volumeInfo.publishedDate : "";
-                
-                if (gbItem.volumeInfo.imageLinks != null) {
-                    item.coverUrl = gbItem.volumeInfo.imageLinks.thumbnail != null ? gbItem.volumeInfo.imageLinks.thumbnail : gbItem.volumeInfo.imageLinks.smallThumbnail;
-                }
-
-                boolean gbDownloadable = gbItem.accessInfo != null
-                        && gbItem.accessInfo.publicDomain
-                        && "FULL_PUBLIC_DOMAIN".equals(gbItem.accessInfo.accessViewStatus)
-                        && gbItem.accessInfo.epub != null
-                        && gbItem.accessInfo.epub.isAvailable
-                        && gbItem.accessInfo.epub.downloadLink != null
-                        && !gbItem.accessInfo.epub.downloadLink.isEmpty();
-
-                item.isDownloadable = gbDownloadable;
-                if (gbDownloadable) {
-                    item.downloadUrl = gbItem.accessInfo.epub.downloadLink;
-                }
-
-                if (gbItem.accessInfo != null && gbItem.accessInfo.webReaderLink != null) {
-                    item.previewUrl = gbItem.accessInfo.webReaderLink;
-                }
-
+                item.publishedDate = gbItem.volumeInfo.publishedDate != null
+                        ? gbItem.volumeInfo.publishedDate : "";
+                item.coverUrl = coverUrl;
+                item.isDownloadable = false;
+                item.downloadUrl = null;
+                item.previewUrl = previewUrl;
                 item.googleBookItem = gbItem;
-                seenNormalizedKeys.add(normKey);
                 unifiedList.add(item);
             }
         }
@@ -2369,211 +2484,109 @@ public class LibraryFragment extends Fragment {
         }
     }
 
-    private String normalizeTitleAuthor(String title, String author) {
-        String t = title == null ? "" : title.toLowerCase().replaceAll("[^a-z0-9]", "");
-        String a = author == null ? "" : author.toLowerCase().replaceAll("[^a-z0-9]", "");
-        return t + "_" + a;
+    private UnifiedBookItem findMatchingGutendexBook(
+            List<UnifiedBookItem> books,
+            String title,
+            String author
+    ) {
+        String titleKey = normalizeTitleForMatch(title);
+        if (titleKey.isEmpty()) {
+            return null;
+        }
+
+        String authorKey = normalizeAuthorForMatch(author);
+        for (UnifiedBookItem candidate : books) {
+            if (candidate.source != UnifiedBookItem.Source.GUTENBERG) {
+                continue;
+            }
+            if (!titleKey.equals(normalizeTitleForMatch(candidate.title))) {
+                continue;
+            }
+
+            String candidateAuthorKey = normalizeAuthorForMatch(candidate.author);
+            if (authorKey.isEmpty() || candidateAuthorKey.isEmpty()
+                    || authorKey.equals(candidateAuthorKey)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
-    private void downloadGoogleBookFromUrl(
+    private String normalizeTitleForMatch(String value) {
+        return value == null ? ""
+                : value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
+    }
+
+    private String normalizeAuthorForMatch(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        String normalized = value.toLowerCase(Locale.ROOT)
+                .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                .trim();
+
+        if (normalized.isEmpty() || "unknown author".equals(normalized)) {
+            return "";
+        }
+
+        String[] parts = normalized.split("\\s+");
+        java.util.Arrays.sort(parts);
+        return String.join(" ", parts);
+    }
+
+    private void downloadGutendexEpub(
             String downloadUrl,
             String fileName,
-            String format,
             String title,
-            String author,
-            String volumeId
+            String author
     ) {
-        if (downloadUrl.startsWith("http://")) {
-            downloadUrl = downloadUrl.replaceFirst("http://", "https://");
+        if (!isAdded()) {
+            return;
         }
-        Log.d("GoogleBooks", "Download URL: " + downloadUrl);
 
-        googleBooksProgress.setVisibility(
-                View.VISIBLE
-        );
+        Context appContext = requireContext().getApplicationContext();
+        BookIngestor ingestor = bookIngestor;
+        if (ingestor == null) {
+            Toast.makeText(requireContext(), "The library importer is not ready.", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
-        final String finalFormat = format;
-        final String finalTitle = title;
-        final String finalAuthor = author;
-        final String finalDownloadUrl = downloadUrl;
+        googleBooksProgress.setVisibility(View.VISIBLE);
 
-        GoogleBooksClient.getApi()
-                .downloadBook(downloadUrl)
+        GutendexClient.getApi()
+                .downloadEpub(downloadUrl)
                 .enqueue(new Callback<ResponseBody>() {
-
                     @Override
                     public void onResponse(
                             @NonNull Call<ResponseBody> call,
                             @NonNull Response<ResponseBody> response
                     ) {
-
                         if (!isAdded()) {
+                            if (response.body() != null) {
+                                response.body().close();
+                            }
                             return;
                         }
 
-                        googleBooksProgress.setVisibility(
-                                View.GONE
-                        );
-
-                        if (
-                                !response.isSuccessful()
-                                        || response.body() == null
-                        ) {
-                            int code = response.code();
-                            String message = response.message();
-                            String url = call.request().url().toString();
-                            String headers = response.headers().toString();
-                            String errorBody = "null";
-
-                            try {
-                                if (response.errorBody() != null) {
-                                    errorBody = response.errorBody().string();
-                                }
-                            } catch (java.io.IOException e) {
-                                errorBody = "Error reading error body: " + e.getMessage();
-                            }
-
-                            Log.e("GoogleBooks", "Download failed!");
-                            Log.e("GoogleBooks", "Status Code: " + code);
-                            Log.e("GoogleBooks", "Message: " + message);
-                            Log.e("GoogleBooks", "URL: " + url);
-                            Log.e("GoogleBooks", "Headers: " + headers);
-                            Log.e("GoogleBooks", "Error Body: " + errorBody);
-
-                            Toast.makeText(
-                                    requireContext(),
-                                    "Could not download this book (HTTP " + code + ")",
-                                    Toast.LENGTH_SHORT
-                            ).show();
-
-                            return;
-                        }
-
-                        File tempFile = new File(requireContext().getCacheDir(), "google_books_temp_" + System.currentTimeMillis());
-                        long downloadedBytes = 0;
-
-                        try (InputStream inputStream = response.body().byteStream();
-                             FileOutputStream outputStream = new FileOutputStream(tempFile)) {
-
-                            byte[] buffer = new byte[8192];
-                            int bytesRead;
-                            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                                outputStream.write(buffer, 0, bytesRead);
-                                downloadedBytes += bytesRead;
-                            }
-                        } catch (java.io.IOException e) {
-                            Log.e("GoogleBooks", "Error saving to temp file", e);
-                            if (tempFile.exists()) tempFile.delete();
-                            Toast.makeText(requireContext(), "Download failed while saving file", Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-
-                        // Diagnostic Logging
-                        Log.d("GoogleBooksDownload", "HTTP Status: " + response.code());
-                        Log.d("GoogleBooksDownload", "Content-Type: " + response.headers().get("Content-Type"));
-                        Log.d("GoogleBooksDownload", "Content-Length: " + response.headers().get("Content-Length"));
-                        Log.d("GoogleBooksDownload", "Final URL: " + response.raw().request().url());
-                        Log.d("GoogleBooksDownload", "Actual Bytes: " + downloadedBytes);
-                        Log.d("GoogleBooksDownload", "Volume ID: " + (volumeId != null ? volumeId : "null"));
-                        Log.d("GoogleBooksDownload", "Title: " + finalTitle);
-                        Log.d("GoogleBooksDownload", "Format: " + finalFormat);
-                        Log.d("GoogleBooksDownload", "URL: " + finalDownloadUrl);
-
-                        byte[] header = new byte[4];
-                        try (FileInputStream fis = new FileInputStream(tempFile)) {
-                            int read = fis.read(header);
-                            if (read < 4) {
-                                Log.e("GoogleBooksDownload", "File too small to read magic bytes");
-                            }
-                        } catch (java.io.IOException e) {
-                            Log.e("GoogleBooksDownload", "Error reading magic bytes", e);
-                        }
-                        String hexHeader = String.format("%02X %02X %02X %02X", 
-                                header[0] & 0xFF, header[1] & 0xFF, header[2] & 0xFF, header[3] & 0xFF);
-                        Log.d("GoogleBooksDownload", "Magic Bytes: " + hexHeader);
-
-                        // ZIP check: 50 4B 03 04
-                        boolean isZip = (header[0] == 0x50 && header[1] == 0x4B && header[2] == 0x03 && header[3] == 0x04);
-
-                        if (!isZip) {
-                            Log.e("GoogleBooksDownload", "Downloaded file is not a ZIP/EPUB");
-                            String previewText = "null";
-                            try (FileInputStream fis = new FileInputStream(tempFile)) {
-                                byte[] preview = new byte[512];
-                                int read = fis.read(preview);
-                                if (read > 0) {
-                                    previewText = new String(preview, 0, read, StandardCharsets.UTF_8);
-                                    Log.e("GoogleBooksDownload", "File start (text): " + previewText);
-                                }
-                            } catch (java.io.IOException e) {
-                                Log.e("GoogleBooksDownload", "Error reading preview", e);
-                            }
-
-                            if (previewText.contains("<!DOCTYPE html>") || previewText.contains("<html>")) {
-                                Log.e("GoogleBooksDownload", "The server returned an HTML page instead of an EPUB.");
-                                Toast.makeText(requireContext(), 
-                                        "Google Books returned a web page instead of an EPUB. This volume requires Google Books download authorization.", 
-                                        Toast.LENGTH_LONG).show();
-                            } else {
-                                Toast.makeText(requireContext(), "The downloaded file is not a valid EPUB.", Toast.LENGTH_LONG).show();
-                            }
-
-                            if (tempFile.exists()) tempFile.delete();
-                            return;
-                        }
-
-                        // EPUB Container check
-                        boolean hasMimetype = false;
-                        boolean hasContainerXml = false;
-                        try (ZipFile zipFile = new ZipFile(tempFile)) {
-                            Log.d("GoogleBooksDownload", "ZIP entries (first several):");
-                            Enumeration<? extends ZipEntry> entries = zipFile.entries();
-                            int count = 0;
-                            while (entries.hasMoreElements()) {
-                                ZipEntry entry = entries.nextElement();
-                                if (count < 10) {
-                                    Log.d("GoogleBooksDownload", " - " + entry.getName());
-                                }
-                                if ("mimetype".equals(entry.getName())) hasMimetype = true;
-                                if ("META-INF/container.xml".equals(entry.getName())) hasContainerXml = true;
-                                count++;
-                            }
-                        } catch (java.io.IOException e) {
-                            Log.e("GoogleBooksDownload", "Error inspecting ZIP", e);
-                        }
-
-                        if (!hasMimetype || !hasContainerXml) {
-                            Log.e("GoogleBooksDownload", "Downloaded file is not a valid EPUB container (mimetype=" + hasMimetype + ", container.xml=" + hasContainerXml + ")");
-                            if (tempFile.exists()) tempFile.delete();
-                            Toast.makeText(requireContext(), "The downloaded file is not a valid EPUB container.", Toast.LENGTH_LONG).show();
-                            return;
-                        }
-
-                        // Pass to BookIngestor
-                        try {
-                            bookIngestor.importDownloadedBook(
-                                    new FileInputStream(tempFile) {
-                                        @Override
-                                        public void close() throws java.io.IOException {
-                                            super.close();
-                                            if (tempFile.exists()) tempFile.delete(); // Delete temp file after import consumes it
-                                        }
-                                    },
-                                    fileName,
-                                    finalFormat,
-                                    finalTitle,
-                                    finalAuthor
+                        if (!response.isSuccessful() || response.body() == null) {
+                            postDownloadMessage(
+                                    "EPUB download failed (HTTP " + response.code() + ")."
                             );
-                        } catch (java.io.FileNotFoundException e) {
-                            Log.e("GoogleBooksDownload", "Could not create stream for import", e);
-                            if (tempFile.exists()) tempFile.delete();
+                            return;
                         }
 
-                        Toast.makeText(
-                                requireContext(),
-                                "Downloading " + finalTitle + "...",
-                                Toast.LENGTH_SHORT
-                        ).show();
+                        ResponseBody body = response.body();
+                        try {
+                            downloadExecutor.execute(
+                                    () -> saveDownloadedEpub(
+                                            appContext, body, fileName, title, author, ingestor
+                                    )
+                            );
+                        } catch (java.util.concurrent.RejectedExecutionException e) {
+                            body.close();
+                            postDownloadMessage("The download could not be started.");
+                        }
                     }
 
                     @Override
@@ -2581,28 +2594,151 @@ public class LibraryFragment extends Fragment {
                             @NonNull Call<ResponseBody> call,
                             @NonNull Throwable t
                     ) {
-
                         if (!isAdded()) {
                             return;
                         }
-
-                        googleBooksProgress.setVisibility(
-                                View.GONE
+                        Log.e("GutendexDownload", "EPUB download request failed", t);
+                        postDownloadMessage(
+                                "Could not download this EPUB. Check your connection and try again."
                         );
-
-                        Log.e(
-                                "GoogleBooks",
-                                "Book download failed",
-                                t
-                        );
-
-                        Toast.makeText(
-                                requireContext(),
-                                "Could not download this book.",
-                                Toast.LENGTH_SHORT
-                        ).show();
                     }
                 });
+    }
+
+    private void saveDownloadedEpub(
+            Context appContext,
+            ResponseBody responseBody,
+            String fileName,
+            String title,
+            String author,
+            BookIngestor ingestor
+    ) {
+        File tempFile = new File(
+                appContext.getCacheDir(),
+                "gutendex_epub_" + System.currentTimeMillis() + ".epub"
+        );
+
+        try (
+                ResponseBody body = responseBody;
+                InputStream inputStream = body.byteStream();
+                FileOutputStream outputStream = new FileOutputStream(tempFile)
+        ) {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+        } catch (Exception e) {
+            Log.e("GutendexDownload", "Could not save downloaded EPUB", e);
+            if (tempFile.exists()) {
+                tempFile.delete();
+            }
+            postDownloadMessage("The EPUB could not be saved.");
+            return;
+        }
+
+        if (!isValidEpub(tempFile)) {
+            Log.e("GutendexDownload", "The server response is not a valid EPUB file.");
+            if (tempFile.exists()) {
+                tempFile.delete();
+            }
+            postDownloadMessage(
+                    "The server did not return a valid EPUB. Try another result."
+            );
+            return;
+        }
+
+        try {
+            FileInputStream importStream = new FileInputStream(tempFile) {
+                @Override
+                public void close() throws java.io.IOException {
+                    try {
+                        super.close();
+                    } finally {
+                        if (tempFile.exists()) {
+                            tempFile.delete();
+                        }
+                    }
+                }
+            };
+
+            ingestor.importDownloadedBook(
+                    importStream,
+                    fileName,
+                    "epub",
+                    title,
+                    author
+            );
+
+            postDownloadMessage(
+                    "EPUB downloaded. Adding it to your library."
+            );
+        } catch (java.io.IOException e) {
+            Log.e("GutendexDownload", "Could not pass EPUB to the library importer", e);
+            if (tempFile.exists()) {
+                tempFile.delete();
+            }
+            postDownloadMessage("The EPUB could not be imported.");
+        }
+    }
+
+    private boolean isValidEpub(File file) {
+        if (file == null || !file.isFile() || file.length() < 100) {
+            return false;
+        }
+
+        try (ZipFile zipFile = new ZipFile(file)) {
+            Enumeration<? extends ZipEntry> entries = zipFile.entries();
+            if (!entries.hasMoreElements()) {
+                return false;
+            }
+
+            ZipEntry firstEntry = entries.nextElement();
+            if (!"mimetype".equals(firstEntry.getName())
+                    || firstEntry.getMethod() != ZipEntry.STORED) {
+                return false;
+            }
+
+            ZipEntry mimetypeEntry = zipFile.getEntry("mimetype");
+            ZipEntry containerEntry = zipFile.getEntry("META-INF/container.xml");
+            if (mimetypeEntry == null || containerEntry == null) {
+                return false;
+            }
+
+            byte[] expected = "application/epub+zip".getBytes(StandardCharsets.US_ASCII);
+            byte[] actual = new byte[expected.length];
+
+            try (InputStream mimetypeInput = zipFile.getInputStream(mimetypeEntry)) {
+                int offset = 0;
+                while (offset < actual.length) {
+                    int read = mimetypeInput.read(actual, offset, actual.length - offset);
+                    if (read < 0) {
+                        return false;
+                    }
+                    offset += read;
+                }
+                if (mimetypeInput.read() != -1) {
+                    return false;
+                }
+            }
+
+            return java.util.Arrays.equals(expected, actual);
+        } catch (java.io.IOException e) {
+            Log.e("GutendexDownload", "EPUB ZIP validation failed", e);
+            return false;
+        }
+    }
+
+    private void postDownloadMessage(String message) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            if (!isAdded()) {
+                return;
+            }
+            if (getView() != null && googleBooksProgress != null) {
+                googleBooksProgress.setVisibility(View.GONE);
+            }
+            Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show();
+        });
     }
 
     private String createSafeBookFileName(
