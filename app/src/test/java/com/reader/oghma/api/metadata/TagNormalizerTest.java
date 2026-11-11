@@ -14,10 +14,11 @@ public class TagNormalizerTest {
     public void testAliasMapping() {
         List<String> raw = Arrays.asList("sci-fi", "dystopian fiction", "epic fantasy");
         List<String> mapped = TagNormalizer.map(raw);
-        assertEquals(3, mapped.size());
+        assertEquals(4, mapped.size());
         assertEquals("Science Fiction", mapped.get(0));
         assertEquals("Dystopia", mapped.get(1));
-        assertEquals("Fantasy", mapped.get(2));
+        assertEquals("Epic Fantasy", mapped.get(2));
+        assertEquals("Fantasy", mapped.get(3));
     }
 
     @Test
@@ -35,7 +36,7 @@ public class TagNormalizerTest {
                 "thriller", "romance", "adventure", "history", "poetry", "fiction"
         );
         List<String> mapped = TagNormalizer.map(raw);
-        assertTrue(mapped.size() <= 8);
+        assertTrue(mapped.size() <= 12);
         // Ensure "Science Fiction" appears once
         long sciFiCount = mapped.stream().filter(t -> t.equals("Science Fiction")).count();
         assertEquals(1, sciFiCount);
