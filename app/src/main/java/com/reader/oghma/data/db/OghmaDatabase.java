@@ -14,12 +14,14 @@ import com.reader.oghma.data.dao.BookTagDao;
 import com.reader.oghma.data.dao.BookmarkDao;
 import com.reader.oghma.data.dao.ProgressDao;
 import com.reader.oghma.data.dao.TagDao;
+import com.reader.oghma.data.dao.TagSuppressionDao;
 
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.entity.BookTag;
 import com.reader.oghma.data.entity.Bookmark;
 import com.reader.oghma.data.entity.Progress;
 import com.reader.oghma.data.entity.Tag;
+import com.reader.oghma.data.entity.TagSuppression;
 
 
 @Database(
@@ -28,9 +30,10 @@ import com.reader.oghma.data.entity.Tag;
                 Progress.class,
                 Bookmark.class,
                 Tag.class,
-                BookTag.class
+                BookTag.class,
+                TagSuppression.class
         },
-        version = 5,
+        version = 6,
         exportSchema = true
 )
 public abstract class OghmaDatabase
@@ -45,6 +48,8 @@ public abstract class OghmaDatabase
     public abstract TagDao tagDao();
 
     public abstract BookTagDao bookTagDao();
+
+    public abstract TagSuppressionDao tagSuppressionDao();
 
 
     private static volatile OghmaDatabase INSTANCE;
@@ -247,6 +252,30 @@ public abstract class OghmaDatabase
             };
 
 
+    /*
+     * Version 5 → Version 6
+     *
+     * Creates TagSuppression table for tracking user-removed auto tags.
+     */
+    private static final Migration MIGRATION_5_6 =
+            new Migration(5, 6) {
+
+                @Override
+                public void migrate(
+                        @NonNull SupportSQLiteDatabase database
+                ) {
+
+                    database.execSQL(
+                            "CREATE TABLE IF NOT EXISTS `TagSuppression` (" +
+                                    "`bookId` INTEGER NOT NULL, " +
+                                    "`normalizedName` TEXT NOT NULL, " +
+                                    "PRIMARY KEY(`bookId`, `normalizedName`), " +
+                                    "FOREIGN KEY(`bookId`) REFERENCES `Book`(`bookId`) ON DELETE CASCADE)"
+                    );
+                }
+            };
+
+
     public static OghmaDatabase getInstance(
             Context context
     ) {
@@ -267,7 +296,8 @@ public abstract class OghmaDatabase
                                             MIGRATION_1_2,
                                             MIGRATION_2_3,
                                             MIGRATION_3_4,
-                                            MIGRATION_4_5
+                                            MIGRATION_4_5,
+                                            MIGRATION_5_6
                                     )
                                     .build();
                 }

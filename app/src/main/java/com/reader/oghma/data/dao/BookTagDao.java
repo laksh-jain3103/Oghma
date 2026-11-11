@@ -25,6 +25,12 @@ public interface BookTagDao {
     )
     List<BookTag> getForBook(int bookId);
 
+    @Query(
+            "SELECT * FROM BookTag " +
+                    "WHERE bookId = :bookId AND tagId = :tagId LIMIT 1"
+    )
+    BookTag getLink(int bookId, int tagId);
+
 
     @Query(
             "SELECT t.* FROM Tag t INNER JOIN BookTag bt ON t.tagId = bt.tagId " +

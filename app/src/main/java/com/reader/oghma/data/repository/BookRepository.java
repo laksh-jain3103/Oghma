@@ -8,11 +8,13 @@ import com.reader.oghma.data.dao.BookDao;
 import com.reader.oghma.data.dao.BookTagDao;
 import com.reader.oghma.data.dao.BookTagItem;
 import com.reader.oghma.data.dao.TagDao;
+import com.reader.oghma.data.dao.TagSuppressionDao;
 import com.reader.oghma.data.dao.TagWithCount;
 import com.reader.oghma.data.db.OghmaDatabase;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.entity.BookTag;
 import com.reader.oghma.data.entity.Tag;
+import com.reader.oghma.data.entity.TagSuppression;
 
 import java.util.List;
 import java.util.Locale;
@@ -25,6 +27,7 @@ public class BookRepository {
     private final BookDao bookDao;
     private final TagDao tagDao;
     private final BookTagDao bookTagDao;
+    private final TagSuppressionDao tagSuppressionDao;
 
     private final ExecutorService executor =
             Executors.newSingleThreadExecutor();
@@ -42,6 +45,7 @@ public class BookRepository {
         bookDao = database.bookDao();
         tagDao = database.tagDao();
         bookTagDao = database.bookTagDao();
+        tagSuppressionDao = database.tagSuppressionDao();
     }
 
 
@@ -173,7 +177,12 @@ public class BookRepository {
             if (displayNames != null) {
                 for (String name : displayNames) {
                     if (name == null || name.trim().isEmpty()) continue;
-                    int tagId = getOrCreateTagIdSync(name);
+                    String trimmed = name.trim();
+                    String normalized = trimmed.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+                    if (tagSuppressionDao.isSuppressed(bookId, normalized)) {
+                        continue;
+                    }
+                    int tagId = getOrCreateTagIdSync(trimmed);
                     if (tagId > 0) {
                         BookTag bt = new BookTag();
                         bt.bookId = bookId;
@@ -194,7 +203,10 @@ public class BookRepository {
     public void addUserTag(int bookId, String tagName) {
         executor.execute(() -> {
             if (tagName == null || tagName.trim().isEmpty()) return;
-            int tagId = getOrCreateTagIdSync(tagName);
+            String trimmed = tagName.trim();
+            String normalized = trimmed.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+            tagSuppressionDao.delete(bookId, normalized);
+            int tagId = getOrCreateTagIdSync(trimmed);
             if (tagId > 0) {
                 BookTag bt = new BookTag();
                 bt.bookId = bookId;
@@ -207,9 +219,28 @@ public class BookRepository {
 
     public void removeTag(int bookId, int tagId) {
         executor.execute(() -> {
+            Tag tag = tagDao.getById(tagId);
+            BookTag link = bookTagDao.getLink(bookId, tagId);
+            if (link != null && "AUTO".equalsIgnoreCase(link.source) && tag != null && tag.normalizedName != null) {
+                TagSuppression s = new TagSuppression();
+                s.bookId = bookId;
+                s.normalizedName = tag.normalizedName;
+                tagSuppressionDao.insert(s);
+            }
             bookTagDao.deleteLink(bookId, tagId);
             tagDao.deleteUnusedTags();
         });
+    }
+
+    public void getTagsForBook(int bookId, TagsCallback callback) {
+        executor.execute(() -> {
+            List<Tag> tags = bookTagDao.tagsForBook(bookId);
+            callback.onTagsLoaded(tags);
+        });
+    }
+
+    public interface TagsCallback {
+        void onTagsLoaded(List<Tag> tags);
     }
 
     public LiveData<List<Tag>> observeTagsForBook(int bookId) {

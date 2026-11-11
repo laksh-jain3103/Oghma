@@ -9,12 +9,14 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -757,6 +759,7 @@ public class LibraryFragment extends Fragment {
         String[] options = {
                 bookmarkOption,
                 "Book details",
+                "Edit tags",
                 "Remove from library"
         };
 
@@ -797,6 +800,12 @@ public class LibraryFragment extends Fragment {
 
                             } else if (which == 2) {
 
+                                showTagEditorDialog(
+                                        book
+                                );
+
+                            } else if (which == 3) {
+
                                 confirmRemoveBook(
                                         book
                                 );
@@ -813,22 +822,27 @@ public class LibraryFragment extends Fragment {
 
     private void showBookDetails(Book book) {
 
-        // Load the saved reading progress first, then show the dialog.
+        // Load the saved reading progress and tags first, then show the dialog.
         new ProgressRepository(
                 requireActivity().getApplication()
         ).get(
                 book.bookId,
                 progress -> {
+                    viewModel.getRepository().getTagsForBook(
+                            book.bookId,
+                            tags -> {
+                                if (!isAdded() || getActivity() == null) {
+                                    return;
+                                }
 
-                    if (!isAdded() || getActivity() == null) {
-                        return;
-                    }
-
-                    getActivity().runOnUiThread(
-                            () -> showBookDetailsDialog(
-                                    book,
-                                    progress
-                            )
+                                getActivity().runOnUiThread(
+                                        () -> showBookDetailsDialog(
+                                                book,
+                                                progress,
+                                                tags
+                                        )
+                                );
+                            }
                     );
                 }
         );
@@ -837,7 +851,8 @@ public class LibraryFragment extends Fragment {
 
     private void showBookDetailsDialog(
             Book book,
-            Progress progress
+            Progress progress,
+            List<Tag> tags
     ) {
 
         String progressText =
@@ -857,6 +872,18 @@ public class LibraryFragment extends Fragment {
                         : "Unknown";
 
 
+        String tagsText = "None";
+        if (tags != null && !tags.isEmpty()) {
+            List<String> names = new ArrayList<>();
+            for (Tag t : tags) {
+                if (t.name != null) names.add(t.name);
+            }
+            if (!names.isEmpty()) {
+                tagsText = String.join(", ", names);
+            }
+        }
+
+
         String details =
                 "Title: "
                         + book.title
@@ -871,7 +898,7 @@ public class LibraryFragment extends Fragment {
                         + "\n\n"
                         + "Progress: " + progressText
                         + "\n\n"
-                        + "Tags: None";
+                        + "Tags: " + tagsText;
 
 
         new AlertDialog.Builder(
@@ -893,6 +920,122 @@ public class LibraryFragment extends Fragment {
                         null
                 )
                 .show();
+    }
+
+    private void showTagEditorDialog(Book book) {
+        LinearLayout root = new LinearLayout(requireContext());
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dpToPx(20), dpToPx(16), dpToPx(20), dpToPx(16));
+
+        ScrollView scrollView = new ScrollView(requireContext());
+        LinearLayout tagsListLayout = new LinearLayout(requireContext());
+        tagsListLayout.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(tagsListLayout);
+
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(200)
+        );
+        root.addView(scrollView, scrollParams);
+
+        LinearLayout inputRow = new LinearLayout(requireContext());
+        inputRow.setOrientation(LinearLayout.HORIZONTAL);
+        inputRow.setPadding(0, dpToPx(12), 0, dpToPx(8));
+
+        EditText inputTagBox = new EditText(requireContext());
+        inputTagBox.setHint("Add tag...");
+        inputTagBox.setMaxLines(1);
+        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1.0f
+        );
+        inputRow.addView(inputTagBox, inputParams);
+
+        Button addTagBtn = new Button(requireContext());
+        addTagBtn.setText("Add");
+        inputRow.addView(addTagBtn);
+        root.addView(inputRow);
+
+        Button refreshMetaBtn = new Button(requireContext());
+        refreshMetaBtn.setText("Refresh metadata");
+        root.addView(refreshMetaBtn);
+
+        AlertDialog dialog = new AlertDialog.Builder(requireContext())
+                .setTitle("Edit Tags: " + book.title)
+                .setView(root)
+                .setPositiveButton("Done", null)
+                .create();
+
+        androidx.lifecycle.LiveData<List<Tag>> tagsLiveData = viewModel.getRepository().observeTagsForBook(book.bookId);
+        androidx.lifecycle.Observer<List<Tag>> observer = new androidx.lifecycle.Observer<List<Tag>>() {
+            @Override
+            public void onChanged(List<Tag> tags) {
+                tagsListLayout.removeAllViews();
+                if (tags != null) {
+                    for (Tag tag : tags) {
+                        LinearLayout row = new LinearLayout(requireContext());
+                        row.setOrientation(LinearLayout.HORIZONTAL);
+                        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                        row.setPadding(0, dpToPx(4), 0, dpToPx(4));
+
+                        TextView nameView = new TextView(requireContext());
+                        nameView.setText(tag.name);
+                        nameView.setTextSize(16);
+                        nameView.setTextColor(getResources().getColor(R.color.text_primary));
+                        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
+                                0,
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                1.0f
+                        );
+                        row.addView(nameView, nameParams);
+
+                        ImageButton removeBtn = new ImageButton(requireContext());
+                        removeBtn.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+                        removeBtn.setBackground(null);
+                        removeBtn.setOnClickListener(v -> {
+                            viewModel.getRepository().removeTag(book.bookId, tag.tagId);
+                        });
+                        row.addView(removeBtn);
+
+                        tagsListLayout.addView(row);
+                    }
+                }
+            }
+        };
+        tagsLiveData.observe(getViewLifecycleOwner(), observer);
+
+        dialog.setOnDismissListener(d -> tagsLiveData.removeObserver(observer));
+
+        addTagBtn.setOnClickListener(v -> {
+            String raw = inputTagBox.getText().toString();
+            String normalizedInput = com.reader.oghma.api.metadata.TagNormalizer.normalizeUserInput(raw);
+            if (!normalizedInput.isEmpty()) {
+                List<Tag> current = tagsLiveData.getValue();
+                boolean exists = false;
+                if (current != null) {
+                    for (Tag t : current) {
+                        if (t.name != null && t.name.equalsIgnoreCase(normalizedInput)) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                }
+                if (!exists) {
+                    viewModel.getRepository().addUserTag(book.bookId, normalizedInput);
+                    inputTagBox.setText("");
+                } else {
+                    Toast.makeText(requireContext(), "Tag already exists", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+
+        refreshMetaBtn.setOnClickListener(v -> {
+            TagBookWorker.enqueue(requireContext(), book.bookId, true);
+            Toast.makeText(requireContext(), "Refreshing metadata...", Toast.LENGTH_SHORT).show();
+        });
+
+        dialog.show();
     }
 
 
