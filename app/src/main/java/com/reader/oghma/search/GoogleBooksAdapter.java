@@ -120,16 +120,11 @@ public class GoogleBooksAdapter
         // -----------------------------
 
         if (book.source == UnifiedBookItem.Source.GUTENBERG) {
-            holder.sourceStatus.setText("Project Gutenberg • Downloadable EPUB");
-            holder.sourceStatus.setTextColor(0xFF00C853); // Greenish
+            holder.sourceStatus.setText("Project Gutenberg • EPUB download");
+            holder.sourceStatus.setTextColor(0xFF00C853);
         } else {
-            if (book.isDownloadable) {
-                holder.sourceStatus.setText("Google Books • Downloadable EPUB");
-                holder.sourceStatus.setTextColor(0xFF00C853);
-            } else {
-                holder.sourceStatus.setText("Google Books • Preview Only");
-                holder.sourceStatus.setTextColor(0xFFA6ADC8); // Secondary text color
-            }
+            holder.sourceStatus.setText("Google Books • Preview only");
+            holder.sourceStatus.setTextColor(0xFFA6ADC8);
         }
 
 
