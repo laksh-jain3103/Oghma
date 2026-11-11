@@ -20,6 +20,7 @@ import com.reader.oghma.api.metadata.BookMetadataService;
 import com.reader.oghma.api.metadata.FilenameParser;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.repository.BookRepository;
+import com.reader.oghma.util.AuthorUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -83,8 +84,8 @@ public class TagBookWorker extends Worker {
         //  - EPUBs with real metadata: title + author as stored.
         //  - Files named like downloads ("Author - Title (z-lib.org)"): dig the title and
         //    author out of the name, trying both orders, then ISBN if the name holds one.
-        boolean authorKnown = book.author != null
-                && !"Unknown author".equalsIgnoreCase(book.author.trim());
+        boolean authorKnown = !AuthorUtils.isUnknownOrEmpty(book.author);
+        String cleanedAuthor = AuthorUtils.cleanAuthor(book.author);
 
         String isbn = FilenameParser.extractIsbn(book.title);
         if (isbn == null && book.filePath != null) {
@@ -94,7 +95,7 @@ public class TagBookWorker extends Worker {
         List<FilenameParser.Candidate> candidates = new ArrayList<>();
         if (authorKnown) {
             List<String> authors = new ArrayList<>();
-            for (String a : book.author.split("[,&]")) {
+            for (String a : cleanedAuthor.split("[,&]")) {
                 if (!a.trim().isEmpty()) authors.add(a.trim());
             }
             candidates.add(new FilenameParser.Candidate(book.title, authors));
@@ -140,7 +141,7 @@ public class TagBookWorker extends Worker {
                 repository.updateTitleAuthorSync(
                         bookId,
                         found.matchedTitle.trim(),
-                        android.text.TextUtils.join(", ", found.matchedAuthors));
+                        AuthorUtils.cleanAuthor(android.text.TextUtils.join(", ", found.matchedAuthors)));
             }
 
             repository.updateTagStatusSync(bookId, "DONE", book.tagAttempts);

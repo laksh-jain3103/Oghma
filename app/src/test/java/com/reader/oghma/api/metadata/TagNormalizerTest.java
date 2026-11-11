@@ -16,9 +16,9 @@ public class TagNormalizerTest {
         List<String> mapped = TagNormalizer.map(raw);
         assertEquals(4, mapped.size());
         assertEquals("Science Fiction", mapped.get(0));
-        assertEquals("Dystopia", mapped.get(1));
-        assertEquals("Epic Fantasy", mapped.get(2));
-        assertEquals("Fantasy", mapped.get(3));
+        assertEquals("Fantasy", mapped.get(1));
+        assertEquals("Dystopia", mapped.get(2));
+        assertEquals("Epic Fantasy", mapped.get(3));
     }
 
     @Test
@@ -33,23 +33,24 @@ public class TagNormalizerTest {
     public void testDeduplicationAndCap() {
         List<String> raw = Arrays.asList(
                 "sci-fi", "science fiction", "fantasy", "horror", "mystery",
-                "thriller", "romance", "adventure", "history", "poetry", "fiction"
+                "thriller", "romance", "adventure", "history", "poetry", "fiction",
+                "biography", "science", "philosophy"
         );
         List<String> mapped = TagNormalizer.map(raw);
         assertTrue(mapped.size() <= 12);
-        // Ensure "Science Fiction" appears once
         long sciFiCount = mapped.stream().filter(t -> t.equals("Science Fiction")).count();
         assertEquals(1, sciFiCount);
     }
 
     @Test
-    public void testOrderingSpecificBeforeGeneral() {
-        List<String> raw = Arrays.asList("Fiction", "Cyberpunk", "Nonfiction", "Dystopia");
+    public void testAliasRankingAndRebellion() {
+        List<String> raw = Arrays.asList(
+                "rebellion", "social classes", "sci-fi", "fantasy", "horror",
+                "mystery", "thriller", "romance", "adventure", "history", "poetry", "biography"
+        );
         List<String> mapped = TagNormalizer.map(raw);
-        // "Fiction" and "Nonfiction" should be at the end
-        assertEquals("Cyberpunk", mapped.get(0));
-        assertEquals("Dystopia", mapped.get(1));
-        assertTrue(mapped.get(2).equalsIgnoreCase("Fiction") || mapped.get(2).equalsIgnoreCase("Nonfiction"));
+        assertTrue(mapped.contains("Rebellion"));
+        assertTrue(mapped.contains("Class Conflict"));
     }
 
     @Test

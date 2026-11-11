@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -67,6 +68,8 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.reader.oghma.data.entity.Bookmark;
 import com.reader.oghma.data.repository.BookmarkRepository;
+import com.reader.oghma.util.AuthorUtils;
+import com.reader.oghma.util.TagChipHelper;
 
 import okhttp3.ResponseBody;
 import retrofit2.Call;
@@ -753,9 +756,11 @@ public class LibraryFragment extends Fragment {
         android.content.Context context = requireContext();
         AlertDialog dialog = new AlertDialog.Builder(context).create();
 
+        ScrollView scrollView = new ScrollView(context);
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dpToPx(20), dpToPx(20), dpToPx(20), dpToPx(20));
+        scrollView.addView(root);
 
         // 1. Title heading
         TextView titleView = new TextView(context);
@@ -767,71 +772,62 @@ public class LibraryFragment extends Fragment {
         titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         root.addView(titleView);
 
-        View sep = new View(context);
-        sep.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(12)));
-        root.addView(sep);
+        // 2. Compact details line under title (Author · Format · Progress)
+        TextView detailsView = new TextView(context);
+        detailsView.setText("Loading details...");
+        detailsView.setTextColor(getResources().getColor(R.color.text_secondary));
+        detailsView.setTextSize(13);
+        detailsView.setPadding(0, dpToPx(4), 0, dpToPx(12));
+        root.addView(detailsView);
 
-        // 2. Details block (Author, Format, Progress)
-        LinearLayout detailsLayout = new LinearLayout(context);
-        detailsLayout.setOrientation(LinearLayout.VERTICAL);
-        detailsLayout.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
-        android.graphics.drawable.GradientDrawable detailsBg = new android.graphics.drawable.GradientDrawable();
-        detailsBg.setColor(getResources().getColor(R.color.surface_variant));
-        detailsBg.setCornerRadius(dpToPx(8));
-        detailsLayout.setBackground(detailsBg);
+        // 3. Tags section
+        LinearLayout tagsSection = new LinearLayout(context);
+        tagsSection.setOrientation(LinearLayout.VERTICAL);
+        tagsSection.setPadding(0, dpToPx(4), 0, dpToPx(12));
 
-        if (book.author != null && !book.author.trim().isEmpty()) {
-            TextView authorView = new TextView(context);
-            authorView.setText("Author: " + book.author);
-            authorView.setTextColor(getResources().getColor(R.color.text_secondary));
-            authorView.setTextSize(14);
-            detailsLayout.addView(authorView);
-        }
-
-        if (book.format != null && !book.format.trim().isEmpty()) {
-            TextView formatView = new TextView(context);
-            formatView.setText("Format: " + book.format.toUpperCase());
-            formatView.setTextColor(getResources().getColor(R.color.text_secondary));
-            formatView.setTextSize(14);
-            detailsLayout.addView(formatView);
-        }
-
-        TextView progressView = new TextView(context);
-        progressView.setText("Progress: Loading...");
-        progressView.setTextColor(getResources().getColor(R.color.text_secondary));
-        progressView.setTextSize(14);
-        detailsLayout.addView(progressView);
-
-        root.addView(detailsLayout);
-
-        View sep2 = new View(context);
-        sep2.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(12)));
-        root.addView(sep2);
-
-        // 3. Tags line (clickable to open tag editor)
-        TextView tagsView = new TextView(context);
-        tagsView.setText("Tags: Loading...");
-        tagsView.setTextColor(getResources().getColor(R.color.text_primary));
-        tagsView.setTextSize(15);
-        tagsView.setPadding(dpToPx(12), dpToPx(10), dpToPx(12), dpToPx(10));
-        tagsView.setBackgroundResource(getSelectableItemBackground(context));
-        tagsView.setOnClickListener(v -> {
+        LinearLayout tagsHeaderRow = new LinearLayout(context);
+        tagsHeaderRow.setOrientation(LinearLayout.HORIZONTAL);
+        tagsHeaderRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        tagsHeaderRow.setBackgroundResource(getSelectableItemBackground(context));
+        tagsHeaderRow.setPadding(dpToPx(4), dpToPx(6), dpToPx(4), dpToPx(6));
+        tagsHeaderRow.setOnClickListener(v -> {
             dialog.dismiss();
             showTagEditorDialog(book);
         });
-        root.addView(tagsView);
 
-        View sep3 = new View(context);
-        sep3.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(12)));
-        root.addView(sep3);
+        TextView tagsLabel = new TextView(context);
+        tagsLabel.setText("Tags");
+        tagsLabel.setTextSize(14);
+        tagsLabel.setTypeface(null, android.graphics.Typeface.BOLD);
+        tagsLabel.setTextColor(getResources().getColor(R.color.text_primary));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        tagsHeaderRow.addView(tagsLabel, labelParams);
 
-        // 4. Action rows
+        TextView editTagsAction = new TextView(context);
+        editTagsAction.setText("Edit");
+        editTagsAction.setTextSize(14);
+        editTagsAction.setTextColor(getResources().getColor(R.color.primary));
+        tagsHeaderRow.addView(editTagsAction);
+
+        tagsSection.addView(tagsHeaderRow);
+
+        com.google.android.material.chip.ChipGroup chipGroup = new com.google.android.material.chip.ChipGroup(context);
+        chipGroup.setChipSpacing(TagChipHelper.dpToPx(context, 4));
+        chipGroup.setPadding(0, TagChipHelper.dpToPx(context, 4), 0, 0);
+        chipGroup.setMinimumHeight(TagChipHelper.dpToPx(context, 32));
+        tagsSection.addView(chipGroup);
+
+        root.addView(tagsSection);
+        root.addView(createThinDivider(context));
+
+        // 4. Action rows (Open book, Add/Remove Bookmark, Edit tags, Remove from library)
         TextView openBookRow = createActionRow(context, "Open book");
         openBookRow.setOnClickListener(v -> {
             dialog.dismiss();
             openBook(book);
         });
         root.addView(openBookRow);
+        root.addView(createThinDivider(context));
 
         String bookmarkText = book.isBookmarked ? "Remove Bookmark" : "Add Bookmark";
         TextView bookmarkRow = createActionRow(context, bookmarkText);
@@ -843,6 +839,7 @@ public class LibraryFragment extends Fragment {
             dialog.dismiss();
         });
         root.addView(bookmarkRow);
+        root.addView(createThinDivider(context));
 
         TextView editTagsRow = createActionRow(context, "Edit tags");
         editTagsRow.setOnClickListener(v -> {
@@ -850,16 +847,24 @@ public class LibraryFragment extends Fragment {
             showTagEditorDialog(book);
         });
         root.addView(editTagsRow);
+        root.addView(createThinDivider(context));
 
         TextView removeRow = createActionRow(context, "Remove from library");
-        removeRow.setTextColor(getResources().getColor(android.R.color.holo_red_dark));
+        int errorColor = 0;
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            errorColor = getThemeColor(context, android.R.attr.colorError);
+        }
+        if (errorColor == 0) {
+            errorColor = getThemeColor(context, com.google.android.material.R.attr.colorError);
+        }
+        removeRow.setTextColor(errorColor != 0 ? errorColor : getResources().getColor(android.R.color.holo_red_dark));
         removeRow.setOnClickListener(v -> {
             dialog.dismiss();
             confirmRemoveBook(book);
         });
         root.addView(removeRow);
 
-        dialog.setView(root);
+        dialog.setView(scrollView);
         dialog.show();
 
         // Load progress and tags off main thread
@@ -867,23 +872,67 @@ public class LibraryFragment extends Fragment {
             viewModel.getRepository().getTagsForBook(book.bookId, tags -> {
                 if (!isAdded() || getActivity() == null) return;
                 getActivity().runOnUiThread(() -> {
-                    String progressText = progress == null ? "Not started" : Math.round(progress.percentage) + "%";
-                    progressView.setText("Progress: " + progressText);
+                    String cleanAuthor = AuthorUtils.cleanAuthor(book.author);
+                    boolean hasAuthor = !AuthorUtils.isUnknownOrEmpty(cleanAuthor);
+                    boolean hasFormat = book.format != null && !book.format.trim().isEmpty();
+                    String progressText = progress == null ? "Not started" : Math.round(progress.percentage) + "% read";
 
-                    String tagsText = "None";
-                    if (tags != null && !tags.isEmpty()) {
-                        List<String> names = new ArrayList<>();
-                        for (Tag t : tags) {
-                            if (t.name != null) names.add(t.name);
+                    List<String> parts = new ArrayList<>();
+                    if (hasAuthor) parts.add(cleanAuthor);
+                    if (hasFormat) parts.add(book.format.toUpperCase());
+                    parts.add(progressText);
+
+                    detailsView.setText(String.join(" · ", parts));
+
+                    chipGroup.removeAllViews();
+                    if (tags == null || tags.isEmpty()) {
+                        android.widget.TextView addChip = TagChipHelper.createChip(context, "Add tags", 12f);
+                        addChip.setOnClickListener(v -> {
+                            dialog.dismiss();
+                            showTagEditorDialog(book);
+                        });
+                        chipGroup.addView(addChip);
+                    } else {
+                        int maxShow = 8;
+                        int total = tags.size();
+                        int showCount = Math.min(total, maxShow);
+                        for (int i = 0; i < showCount; i++) {
+                            Tag t = tags.get(i);
+                            android.widget.TextView chip = TagChipHelper.createChip(context, t.name, 12f);
+                            chip.setMaxWidth(TagChipHelper.dpToPx(context, 140));
+                            chip.setOnClickListener(v -> {
+                                dialog.dismiss();
+                                showTagEditorDialog(book);
+                            });
+                            chipGroup.addView(chip);
                         }
-                        if (!names.isEmpty()) {
-                            tagsText = String.join(", ", names);
+                        if (total > maxShow) {
+                            int extra = total - maxShow;
+                            android.widget.TextView plusChip = TagChipHelper.createChip(context, "+" + extra, 12f);
+                            plusChip.setOnClickListener(v -> {
+                                dialog.dismiss();
+                                showTagEditorDialog(book);
+                            });
+                            chipGroup.addView(plusChip);
                         }
                     }
-                    tagsView.setText("Tags: " + tagsText);
                 });
             });
         });
+    }
+
+    private View createThinDivider(android.content.Context context) {
+        View divider = new View(context);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(1));
+        divider.setLayoutParams(params);
+        divider.setBackgroundColor(getResources().getColor(R.color.surface_variant));
+        return divider;
+    }
+
+    private int getThemeColor(android.content.Context context, int attrResId) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        context.getTheme().resolveAttribute(attrResId, tv, true);
+        return tv.data;
     }
 
     private int getSelectableItemBackground(android.content.Context context) {
@@ -897,7 +946,9 @@ public class LibraryFragment extends Fragment {
         row.setText(text);
         row.setTextSize(16);
         row.setTextColor(getResources().getColor(R.color.text_primary));
-        row.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
+        row.setMinimumHeight(dpToPx(48));
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dpToPx(12), 0, dpToPx(12), 0);
         row.setBackgroundResource(getSelectableItemBackground(context));
         return row;
     }

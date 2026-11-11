@@ -34,21 +34,21 @@ public interface BookTagDao {
 
     @Query(
             "SELECT t.* FROM Tag t INNER JOIN BookTag bt ON t.tagId = bt.tagId " +
-                    "WHERE bt.bookId = :bookId ORDER BY t.name COLLATE NOCASE ASC"
+                    "WHERE bt.bookId = :bookId ORDER BY CASE WHEN bt.source = 'USER' THEN 0 ELSE 1 END, bt.rowid ASC"
     )
     List<Tag> tagsForBook(int bookId);
 
 
     @Query(
             "SELECT t.* FROM Tag t INNER JOIN BookTag bt ON t.tagId = bt.tagId " +
-                    "WHERE bt.bookId = :bookId ORDER BY t.name COLLATE NOCASE ASC"
+                    "WHERE bt.bookId = :bookId ORDER BY CASE WHEN bt.source = 'USER' THEN 0 ELSE 1 END, bt.rowid ASC"
     )
     LiveData<List<Tag>> observeTagsForBook(int bookId);
 
 
     @Query(
             "SELECT bt.bookId AS bookId, t.tagId AS tagId, t.name AS name, t.normalizedName AS normalizedName " +
-                    "FROM Tag t INNER JOIN BookTag bt ON t.tagId = bt.tagId"
+                    "FROM Tag t INNER JOIN BookTag bt ON t.tagId = bt.tagId ORDER BY CASE WHEN bt.source = 'USER' THEN 0 ELSE 1 END, bt.rowid ASC"
     )
     LiveData<List<BookTagItem>> observeAllBookTags();
 

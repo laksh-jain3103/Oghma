@@ -29,9 +29,18 @@ public class TagNormalizer {
             "fiction/general"
     ));
 
+    private static final List<String> PRIMARY_GENRES_ORDER = Arrays.asList(
+            "Science Fiction", "Fantasy", "Dystopia", "Space Opera", "Cyberpunk",
+            "Horror", "Mystery", "Thriller", "Romance", "Historical Fiction",
+            "Literary Fiction", "Young Adult", "Adventure", "Humor", "Biography",
+            "History", "Science", "Philosophy", "Psychology", "Self-Help", "Business",
+            "Computers", "Poetry", "Graphic Novels", "Religion", "Politics", "Award Winner"
+    );
+
     private static final Map<String, String> ALIAS_MAP = new HashMap<>();
     private static final int MAX_TAGS = 12;
     private static final Map<String, String> PARENT = new HashMap<>();
+    private static final Set<String> CANONICAL_VALUES = new HashSet<>();
 
     static {
         // Science Fiction
@@ -212,6 +221,9 @@ public class TagNormalizer {
         addSub("short stories", "Short Stories", "Fiction");
         addSub("children's", "Children's", null);
         addSub("love stories", "Romance", null);
+
+        CANONICAL_VALUES.addAll(ALIAS_MAP.values());
+        CANONICAL_VALUES.addAll(PARENT.keySet());
     }
 
     /** Subgenre or theme: maps to its own tag, and also adds a parent genre if given. */
@@ -243,6 +255,14 @@ public class TagNormalizer {
             String trimmed = raw.trim();
             if (trimmed.isEmpty()) continue;
 
+            String lower = trimmed.toLowerCase(Locale.ROOT);
+
+            // Award handling: anything containing the word "award" (any case) -> "Award Winner"
+            if (lower.matches(".*\\baward\\b.*") || lower.contains("award")) {
+                result.add("Award Winner");
+                continue;
+            }
+
             String key = normalizeKey(trimmed);
             if (isNoise(key)) continue;
 
@@ -259,8 +279,8 @@ public class TagNormalizer {
                 continue;
             }
 
-            // Unmapped categories: keep if short (<= 30 chars) and not noise
-            if (trimmed.length() <= 30 && !isNoise(key)) {
+            // Unmapped categories: keep if valid according to rules
+            if (isValidUnmappedTag(trimmed, key)) {
                 result.add(toTitleCase(trimmed));
             }
         }
@@ -268,11 +288,12 @@ public class TagNormalizer {
         // Sort: specific genres before "Fiction" and "Nonfiction"
         List<String> sorted = new ArrayList<>(result);
         sorted.sort((a, b) -> {
-            boolean aGeneral = "Fiction".equalsIgnoreCase(a) || "Nonfiction".equalsIgnoreCase(a);
-            boolean bGeneral = "Fiction".equalsIgnoreCase(b) || "Nonfiction".equalsIgnoreCase(b);
-            if (aGeneral && !bGeneral) return 1;
-            if (!aGeneral && bGeneral) return -1;
-            return 0; // maintain insertion order otherwise
+            int rankA = getTagRank(a);
+            int rankB = getTagRank(b);
+            if (rankA != rankB) {
+                return Integer.compare(rankA, rankB);
+            }
+            return a.compareToIgnoreCase(b);
         });
 
         // Cap at 12
@@ -281,6 +302,43 @@ public class TagNormalizer {
         }
 
         return sorted;
+    }
+
+    private static boolean isValidUnmappedTag(String trimmed, String key) {
+        if (isNoise(key)) return false;
+        if (trimmed.matches(".*[:=0-9].*")) return false;
+
+        String[] words = trimmed.split("\\s+");
+        if (words.length > 3) return false;
+
+        if (words.length >= 3) {
+            String lower = key;
+            if (lower.contains(" in ") || lower.contains(" of ")) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static int getTagRank(String tag) {
+        if ("Fiction".equalsIgnoreCase(tag) || "Nonfiction".equalsIgnoreCase(tag)) {
+            return 300;
+        }
+        int primaryIdx = -1;
+        for (int i = 0; i < PRIMARY_GENRES_ORDER.size(); i++) {
+            if (PRIMARY_GENRES_ORDER.get(i).equalsIgnoreCase(tag)) {
+                primaryIdx = i;
+                break;
+            }
+        }
+        if (primaryIdx != -1) {
+            return primaryIdx;
+        }
+        if (CANONICAL_VALUES.contains(tag) || PARENT.containsKey(tag) || PARENT.containsValue(tag)) {
+            return 100; // subgenres/themes (alias table values)
+        }
+        return 200; // unmapped kept tags
     }
 
     public static String normalizeUserInput(String input) {

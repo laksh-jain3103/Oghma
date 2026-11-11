@@ -2,6 +2,7 @@ package com.reader.oghma.library;
 
 import android.graphics.BitmapFactory;
 import android.content.Context;
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -16,6 +17,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.entity.Tag;
+import com.reader.oghma.util.AuthorUtils;
+import com.reader.oghma.util.TagChipHelper;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -193,11 +196,13 @@ public class BookAdapter
         // Author
         // -----------------------------------------------------
 
-        holder.bookAuthor.setText(
-                book.author != null
-                        ? book.author
-                        : "Unknown author"
-        );
+        String cleanAuthor = AuthorUtils.cleanAuthor(book.author);
+        if (AuthorUtils.isUnknownOrEmpty(cleanAuthor)) {
+            holder.bookAuthor.setVisibility(View.GONE);
+        } else {
+            holder.bookAuthor.setVisibility(View.VISIBLE);
+            holder.bookAuthor.setText(cleanAuthor);
+        }
 
 
         // -----------------------------------------------------
@@ -217,20 +222,22 @@ public class BookAdapter
 
         List<Tag> tags = bookTagsMap.get(book.bookId);
         holder.bookTagContainer.removeAllViews();
-        if (tags != null && !tags.isEmpty()) {
-            holder.bookTagContainer.setVisibility(View.VISIBLE);
-            int showCount = Math.min(tags.size(), 3);
-            for (int i = 0; i < showCount; i++) {
-                TextView chip = createTagChip(holder.itemView.getContext(), tags.get(i).name);
-                holder.bookTagContainer.addView(chip);
-            }
-            if (tags.size() > 3) {
-                int extra = tags.size() - 3;
-                TextView extraChip = createTagChip(holder.itemView.getContext(), "+" + extra);
-                holder.bookTagContainer.addView(extraChip);
-            }
-        } else {
+        if (tags == null || tags.isEmpty()) {
             holder.bookTagContainer.setVisibility(View.GONE);
+        } else {
+            holder.bookTagContainer.setVisibility(View.VISIBLE);
+            holder.bookTagContainer.setMinimumHeight(TagChipHelper.dpToPx(holder.itemView.getContext(), 24));
+            holder.bookTagContainer.setTag(book.bookId);
+            holder.bookTagContainer.post(() -> {
+                if (holder.bookTagContainer.getTag() == null || (int) holder.bookTagContainer.getTag() != book.bookId) {
+                    return;
+                }
+                int availableWidth = holder.bookTagContainer.getWidth() - holder.bookTagContainer.getPaddingLeft() - holder.bookTagContainer.getPaddingRight();
+                if (availableWidth <= 0) {
+                    availableWidth = holder.itemView.getWidth() - TagChipHelper.dpToPx(holder.itemView.getContext(), 48);
+                }
+                bindDynamicChips(holder.bookTagContainer, tags, availableWidth);
+            });
         }
 
 
@@ -325,27 +332,49 @@ public class BookAdapter
     }
 
 
-    private TextView createTagChip(Context context, String text) {
-        TextView chip = new TextView(context);
-        chip.setText(text);
-        chip.setTextColor(context.getResources().getColor(R.color.text_secondary));
-        chip.setTextSize(10);
-        chip.setPadding(dpToPx(context, 6), dpToPx(context, 2), dpToPx(context, 6), dpToPx(context, 2));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        params.setMarginEnd(dpToPx(context, 4));
-        chip.setLayoutParams(params);
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(context.getResources().getColor(R.color.surface_variant));
-        bg.setCornerRadius(dpToPx(context, 4));
-        chip.setBackground(bg);
-        return chip;
-    }
+    private void bindDynamicChips(LinearLayout container, List<Tag> tags, int availableWidth) {
+        container.removeAllViews();
+        Context context = container.getContext();
+        int margin = TagChipHelper.dpToPx(context, 4);
 
-    private int dpToPx(Context context, int dp) {
-        return (int) (dp * context.getResources().getDisplayMetrics().density);
+        List<View> chipsToAdd = new ArrayList<>();
+        int fitCount = 0;
+        int usedWidth = 0;
+
+        for (int i = 0; i < tags.size(); i++) {
+            TextView chip = TagChipHelper.createChip(context, tags.get(i).name, 11f);
+            chip.setMaxWidth(TagChipHelper.dpToPx(context, 120));
+            chip.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            int w = chip.getMeasuredWidth() + margin;
+
+            int remaining = tags.size() - i;
+            int plusWidth = 0;
+            if (remaining > 1) {
+                TextView plusChip = TagChipHelper.createChip(context, "+" + remaining, 11f);
+                plusChip.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                plusWidth = plusChip.getMeasuredWidth() + margin;
+            }
+
+            if (usedWidth + w + (remaining > 1 ? plusWidth : 0) <= availableWidth || fitCount == 0) {
+                usedWidth += w;
+                chipsToAdd.add(chip);
+                fitCount++;
+            } else {
+                break;
+            }
+        }
+
+        for (View c : chipsToAdd) {
+            container.addView(c);
+        }
+
+        if (fitCount < tags.size()) {
+            int extra = tags.size() - fitCount;
+            TextView plusChip = TagChipHelper.createChip(context, "+" + extra, 11f);
+            container.addView(plusChip);
+        }
     }
 
     @Override
