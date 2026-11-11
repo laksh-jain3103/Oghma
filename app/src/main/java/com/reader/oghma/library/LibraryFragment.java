@@ -47,6 +47,9 @@ import com.reader.oghma.search.UnifiedBookItem;
 import com.reader.oghma.api.GutendexClient;
 import com.reader.oghma.api.model.GutendexResponse;
 import com.reader.oghma.api.model.GutendexBook;
+import com.reader.oghma.api.ProjectGutenbergClient;
+import com.reader.oghma.api.model.ProjectGutenbergBook;
+import com.reader.oghma.api.model.ProjectGutenbergParser;
 import android.content.Intent;
 
 import java.io.File;
@@ -183,6 +186,8 @@ public class LibraryFragment extends Fragment {
 
     private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
 
+    private final ExecutorService searchExecutor = Executors.newFixedThreadPool(2);
+
     private static final int MAX_GUTENDEX_RETRIES = 1;
 
 
@@ -204,6 +209,7 @@ public class LibraryFragment extends Fragment {
     public void onDestroy() {
         searchRequestId++;
         downloadExecutor.shutdown();
+        searchExecutor.shutdown();
         super.onDestroy();
     }
 
@@ -2170,8 +2176,7 @@ public class LibraryFragment extends Fragment {
     }
 
     private void downloadUnifiedBook(UnifiedBookItem book) {
-        if (book == null || book.source != UnifiedBookItem.Source.GUTENBERG
-                || book.gutendexBook == null) {
+        if (book == null || book.source != UnifiedBookItem.Source.GUTENBERG) {
             if (book != null && book.previewUrl != null && !book.previewUrl.isEmpty()) {
                 openGoogleBooksPreview(book.previewUrl);
             } else {
@@ -2181,13 +2186,31 @@ public class LibraryFragment extends Fragment {
         }
 
         String downloadUrl = book.downloadUrl;
-        if (downloadUrl == null || downloadUrl.isEmpty()) {
+        if ((downloadUrl == null || downloadUrl.isEmpty())
+                && book.gutendexBook != null) {
             downloadUrl = book.gutendexBook.getEpubDownloadUrl();
+        }
+        if ((downloadUrl == null || downloadUrl.isEmpty())
+                && book.projectGutenbergBook != null) {
+            downloadUrl = book.projectGutenbergBook.epubUrl;
         }
         if (downloadUrl == null || downloadUrl.isEmpty()) {
             Toast.makeText(requireContext(), "No EPUB download is listed for this book.", Toast.LENGTH_SHORT).show();
             return;
         }
+
+        int gutenbergId = book.gutenbergId;
+        if (gutenbergId <= 0 && book.gutendexBook != null) {
+            gutenbergId = book.gutendexBook.id;
+        }
+        if (gutenbergId <= 0 && book.projectGutenbergBook != null) {
+            gutenbergId = book.projectGutenbergBook.id;
+        }
+        if (gutenbergId <= 0) {
+            Toast.makeText(requireContext(), "The Gutenberg book ID is missing.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         if (downloadUrl.startsWith("http://")) {
             downloadUrl = downloadUrl.replaceFirst("http://", "https://");
         }
@@ -2196,11 +2219,11 @@ public class LibraryFragment extends Fragment {
                 ? book.title : "Unknown book";
         String author = book.author != null && !book.author.trim().isEmpty()
                 ? book.author : "Unknown author";
-        String uniqueTitle = title + " - PG" + book.gutendexBook.id
+        String uniqueTitle = title + " - PG" + gutenbergId
                 + "-" + System.currentTimeMillis();
         String fileName = createSafeBookFileName(uniqueTitle, ".epub");
 
-        downloadGutendexEpub(downloadUrl, fileName, title, author);
+        downloadGutenbergEpub(downloadUrl, fileName, title, author, gutenbergId);
     }
 
     private void searchGoogleBooks(String query) {
@@ -2211,19 +2234,39 @@ public class LibraryFragment extends Fragment {
 
         List<GoogleBookItem> googleBooksList = new ArrayList<>();
         List<GutendexBook> gutendexBooksList = new ArrayList<>();
+        List<ProjectGutenbergBook> projectGutenbergBooksList = new ArrayList<>();
 
         final boolean[] googleFinished = {false};
         final boolean[] gutendexFinished = {false};
+        final boolean[] projectGutenbergFinished = {false};
+        final boolean[] gutendexAvailable = {false};
+        final boolean[] projectGutenbergAvailable = {false};
 
         Runnable checkComplete = () -> {
-            if (requestId != searchRequestId || !googleFinished[0] || !gutendexFinished[0]) {
+            if (requestId != searchRequestId
+                    || !googleFinished[0]
+                    || !gutendexFinished[0]
+                    || !projectGutenbergFinished[0]) {
                 return;
             }
             if (!isAdded()) {
                 return;
             }
+
             googleBooksProgress.setVisibility(View.GONE);
-            processCombinedResults(googleBooksList, gutendexBooksList);
+            processCombinedResults(
+                    googleBooksList,
+                    gutendexBooksList,
+                    projectGutenbergBooksList
+            );
+
+            if (!gutendexAvailable[0] && !projectGutenbergAvailable[0]) {
+                Toast.makeText(
+                        requireContext(),
+                        "The public-domain catalogue is temporarily unavailable. Google previews may still appear.",
+                        Toast.LENGTH_LONG
+                ).show();
+            }
         };
 
         // Google Books supplies broad discovery results and preview links.
@@ -2232,11 +2275,23 @@ public class LibraryFragment extends Fragment {
             checkComplete.run();
         });
 
-        // Gutendex supplies EPUB links for records explicitly marked public domain in the US.
-        fetchGutendexPages(query, 1, 3, gutendexBooksList, requestId, () -> {
-            gutendexFinished[0] = true;
-            checkComplete.run();
-        });
+        // Gutendex is retained as one catalogue provider.
+        fetchGutendexPages(
+                query, 1, 3, gutendexBooksList, requestId, gutendexAvailable,
+                () -> {
+                    gutendexFinished[0] = true;
+                    checkComplete.run();
+                }
+        );
+
+        // The official OPDS feed is an independent fallback. Request one page per search.
+        fetchProjectGutenbergBooks(
+                query, projectGutenbergBooksList, requestId, projectGutenbergAvailable,
+                () -> {
+                    projectGutenbergFinished[0] = true;
+                    checkComplete.run();
+                }
+        );
     }
 
     private void fetchGoogleBooksPages(
@@ -2315,10 +2370,12 @@ public class LibraryFragment extends Fragment {
             int maxPages,
             List<GutendexBook> accumulated,
             int requestId,
+            boolean[] sourceAvailable,
             Runnable onComplete
     ) {
         fetchGutendexPageAttempt(
-                query, page, maxPages, accumulated, requestId, onComplete, 0
+                query, page, maxPages, accumulated, requestId,
+                sourceAvailable, onComplete, 0
         );
     }
 
@@ -2328,6 +2385,7 @@ public class LibraryFragment extends Fragment {
             int maxPages,
             List<GutendexBook> accumulated,
             int requestId,
+            boolean[] sourceAvailable,
             Runnable onComplete,
             int retryAttempt
     ) {
@@ -2337,9 +2395,6 @@ public class LibraryFragment extends Fragment {
         }
 
         GutendexClient.getApi()
-                // Ask the API for only US-public-domain records with an EPUB format.
-                // "application/epub" is a documented MIME prefix; the exact EPUB MIME
-                // entry is still checked locally before a result becomes downloadable.
                 .searchBooks(query, "false", "application/epub", page)
                 .enqueue(new Callback<GutendexResponse>() {
                     @Override
@@ -2348,47 +2403,37 @@ public class LibraryFragment extends Fragment {
                             @NonNull Response<GutendexResponse> response
                     ) {
                         if (!isAdded() || requestId != searchRequestId) {
+                            if (response.body() != null) response.body().close();
+                            if (response.errorBody() != null) response.errorBody().close();
                             onComplete.run();
                             return;
                         }
 
                         if (!response.isSuccessful() || response.body() == null) {
-                            String errorDetails = "";
-                            try (ResponseBody errorBody = response.errorBody()) {
-                                if (errorBody != null) {
-                                    errorDetails = errorBody.string();
-                                }
-                            } catch (Exception e) {
-                                Log.w("GutendexSearch", "Could not read error response", e);
+                            if (response.errorBody() != null) {
+                                response.errorBody().close();
                             }
 
-                            Log.e(
+                            Log.w(
                                     "GutendexSearch",
                                     "HTTP " + response.code()
                                             + " for query '" + query + "', page " + page
-                                            + ". " + errorDetails
                             );
 
                             if (isRetryableGutendexStatus(response.code())
                                     && retryAttempt < MAX_GUTENDEX_RETRIES) {
                                 scheduleGutendexRetry(
                                         query, page, maxPages, accumulated, requestId,
-                                        onComplete, retryAttempt + 1,
+                                        sourceAvailable, onComplete, retryAttempt + 1,
                                         "HTTP " + response.code()
                                 );
                             } else {
-                                if (isAdded() && requestId == searchRequestId) {
-                                    Toast.makeText(
-                                            requireContext(),
-                                            "Project Gutenberg search is temporarily unavailable. Google previews may still appear.",
-                                            Toast.LENGTH_LONG
-                                    ).show();
-                                }
                                 onComplete.run();
                             }
                             return;
                         }
 
+                        sourceAvailable[0] = true;
                         GutendexResponse body = response.body();
                         if (body.results != null) {
                             Log.d(
@@ -2406,19 +2451,11 @@ public class LibraryFragment extends Fragment {
                                             "Book ID=" + result.id
                                                     + ", title=" + result.title
                                                     + ", copyright=" + result.copyright
-                                                    + ", formats=" + (result.formats == null
-                                                    ? "null" : result.formats.keySet())
                                                     + ", hasEpub=" + (result.getEpubDownloadUrl() != null)
                                     );
                                 }
                             }
                             accumulated.addAll(body.results);
-                        } else {
-                            Log.w(
-                                    "GutendexSearch",
-                                    "Successful response contained null results for query '"
-                                            + query + "', page " + page
-                            );
                         }
 
                         if (body.next != null
@@ -2426,7 +2463,8 @@ public class LibraryFragment extends Fragment {
                                 && body.results != null
                                 && !body.results.isEmpty()) {
                             fetchGutendexPages(
-                                    query, page + 1, maxPages, accumulated, requestId, onComplete
+                                    query, page + 1, maxPages, accumulated, requestId,
+                                    sourceAvailable, onComplete
                             );
                         } else {
                             onComplete.run();
@@ -2438,7 +2476,7 @@ public class LibraryFragment extends Fragment {
                             @NonNull Call<GutendexResponse> call,
                             @NonNull Throwable t
                     ) {
-                        Log.e(
+                        Log.w(
                                 "GutendexSearch",
                                 "Request failed for query '" + query + "', page " + page,
                                 t
@@ -2449,17 +2487,10 @@ public class LibraryFragment extends Fragment {
                                 && retryAttempt < MAX_GUTENDEX_RETRIES) {
                             scheduleGutendexRetry(
                                     query, page, maxPages, accumulated, requestId,
-                                    onComplete, retryAttempt + 1,
+                                    sourceAvailable, onComplete, retryAttempt + 1,
                                     t.getClass().getSimpleName()
                             );
                         } else {
-                            if (isAdded() && requestId == searchRequestId) {
-                                Toast.makeText(
-                                        requireContext(),
-                                        "Project Gutenberg search timed out. Google previews may still appear.",
-                                        Toast.LENGTH_LONG
-                                ).show();
-                            }
                             onComplete.run();
                         }
                     }
@@ -2472,6 +2503,7 @@ public class LibraryFragment extends Fragment {
             int maxPages,
             List<GutendexBook> accumulated,
             int requestId,
+            boolean[] sourceAvailable,
             Runnable onComplete,
             int nextAttempt,
             String reason
@@ -2494,7 +2526,7 @@ public class LibraryFragment extends Fragment {
 
                     fetchGutendexPageAttempt(
                             query, page, maxPages, accumulated, requestId,
-                            onComplete, nextAttempt
+                            sourceAvailable, onComplete, nextAttempt
                     );
                 },
                 delayMs
@@ -2507,9 +2539,105 @@ public class LibraryFragment extends Fragment {
                 || statusCode >= 500;
     }
 
+    private void fetchProjectGutenbergBooks(
+            String query,
+            List<ProjectGutenbergBook> accumulated,
+            int requestId,
+            boolean[] sourceAvailable,
+            Runnable onComplete
+    ) {
+        if (!isAdded() || requestId != searchRequestId) {
+            onComplete.run();
+            return;
+        }
+
+        ProjectGutenbergClient.getApi()
+                .searchBooks(query)
+                .enqueue(new Callback<ResponseBody>() {
+                    @Override
+                    public void onResponse(
+                            @NonNull Call<ResponseBody> call,
+                            @NonNull Response<ResponseBody> response
+                    ) {
+                        if (!isAdded() || requestId != searchRequestId) {
+                            if (response.body() != null) response.body().close();
+                            if (response.errorBody() != null) response.errorBody().close();
+                            onComplete.run();
+                            return;
+                        }
+
+                        if (!response.isSuccessful() || response.body() == null) {
+                            if (response.errorBody() != null) {
+                                response.errorBody().close();
+                            }
+                            Log.w(
+                                    "ProjectGutenbergSearch",
+                                    "Official OPDS returned HTTP " + response.code()
+                                            + " for query '" + query + "'"
+                            );
+                            onComplete.run();
+                            return;
+                        }
+
+                        ResponseBody responseBody = response.body();
+                        try {
+                            searchExecutor.execute(() -> {
+                                List<ProjectGutenbergBook> parsedBooks = new ArrayList<>();
+                                boolean parsedSuccessfully = false;
+                                try (ResponseBody closeableBody = responseBody;
+                                     InputStream inputStream = closeableBody.byteStream()) {
+                                    parsedBooks.addAll(ProjectGutenbergParser.parse(inputStream));
+                                    parsedSuccessfully = true;
+                                } catch (Exception e) {
+                                    Log.e(
+                                            "ProjectGutenbergSearch",
+                                            "Could not parse the official OPDS feed for query '"
+                                                    + query + "'",
+                                            e
+                                    );
+                                }
+
+                                final boolean success = parsedSuccessfully;
+                                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                                    if (success && isAdded() && requestId == searchRequestId) {
+                                        sourceAvailable[0] = true;
+                                        accumulated.addAll(parsedBooks);
+                                        Log.d(
+                                                "ProjectGutenbergSearch",
+                                                "Parsed " + parsedBooks.size()
+                                                        + " verified EPUB results for query '"
+                                                        + query + "'"
+                                        );
+                                    }
+                                    onComplete.run();
+                                });
+                            });
+                        } catch (java.util.concurrent.RejectedExecutionException e) {
+                            responseBody.close();
+                            Log.w("ProjectGutenbergSearch", "Search executor is shutting down", e);
+                            onComplete.run();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(
+                            @NonNull Call<ResponseBody> call,
+                            @NonNull Throwable t
+                    ) {
+                        Log.w(
+                                "ProjectGutenbergSearch",
+                                "Official OPDS request failed for query '" + query + "'",
+                                t
+                        );
+                        onComplete.run();
+                    }
+                });
+    }
+
     private void processCombinedResults(
             List<GoogleBookItem> googleItems,
-            List<GutendexBook> gutendexItems
+            List<GutendexBook> gutendexItems,
+            List<ProjectGutenbergBook> projectGutenbergItems
     ) {
         List<UnifiedBookItem> unifiedList = new ArrayList<>();
 
@@ -2548,6 +2676,55 @@ public class LibraryFragment extends Fragment {
                 item.isDownloadable = true;
                 item.downloadUrl = epubUrl;
                 item.gutendexBook = gBook;
+                item.gutenbergId = gBook.id;
+                unifiedList.add(item);
+            }
+        }
+
+        // Merge the official OPDS catalogue into the same Gutenberg result set.
+        // Only entries with explicit US public-domain rights and an EPUB link are accepted.
+        if (projectGutenbergItems != null) {
+            for (ProjectGutenbergBook pgBook : projectGutenbergItems) {
+                if (pgBook == null || !pgBook.publicDomainInUs
+                        || pgBook.id <= 0
+                        || pgBook.epubUrl == null || pgBook.epubUrl.trim().isEmpty()) {
+                    continue;
+                }
+
+                String author = pgBook.authors == null || pgBook.authors.isEmpty()
+                        ? "Unknown author" : String.join(", ", pgBook.authors);
+
+                UnifiedBookItem existing = findGutenbergBookById(unifiedList, pgBook.id);
+                if (existing == null) {
+                    existing = findMatchingGutenbergBook(unifiedList, pgBook.title, author);
+                }
+
+                if (existing != null) {
+                    if (existing.coverUrl == null || existing.coverUrl.isEmpty()) {
+                        existing.coverUrl = pgBook.coverUrl;
+                    }
+                    if (existing.downloadUrl == null || existing.downloadUrl.isEmpty()) {
+                        existing.downloadUrl = pgBook.epubUrl;
+                    }
+                    if (existing.gutenbergId <= 0) {
+                        existing.gutenbergId = pgBook.id;
+                    }
+                    existing.projectGutenbergBook = pgBook;
+                    existing.isDownloadable = true;
+                    continue;
+                }
+
+                UnifiedBookItem item = new UnifiedBookItem();
+                item.source = UnifiedBookItem.Source.GUTENBERG;
+                item.title = pgBook.title;
+                item.author = author;
+                item.publishedDate = pgBook.publishedDate != null
+                        ? pgBook.publishedDate : "";
+                item.coverUrl = pgBook.coverUrl;
+                item.isDownloadable = true;
+                item.downloadUrl = pgBook.epubUrl;
+                item.projectGutenbergBook = pgBook;
+                item.gutenbergId = pgBook.id;
                 unifiedList.add(item);
             }
         }
@@ -2584,7 +2761,7 @@ public class LibraryFragment extends Fragment {
                     previewUrl = gbItem.volumeInfo.previewLink;
                 }
 
-                UnifiedBookItem matchingGutenberg = findMatchingGutendexBook(
+                UnifiedBookItem matchingGutenberg = findMatchingGutenbergBook(
                         unifiedList, title, author
                 );
 
@@ -2632,7 +2809,21 @@ public class LibraryFragment extends Fragment {
         }
     }
 
-    private UnifiedBookItem findMatchingGutendexBook(
+    private UnifiedBookItem findGutenbergBookById(
+            List<UnifiedBookItem> books,
+            int gutenbergId
+    ) {
+        for (UnifiedBookItem candidate : books) {
+            if (candidate != null
+                    && candidate.source == UnifiedBookItem.Source.GUTENBERG
+                    && candidate.gutenbergId == gutenbergId) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private UnifiedBookItem findMatchingGutenbergBook(
             List<UnifiedBookItem> books,
             String title,
             String author
@@ -2683,11 +2874,12 @@ public class LibraryFragment extends Fragment {
         return String.join(" ", parts);
     }
 
-    private void downloadGutendexEpub(
+    private void downloadGutenbergEpub(
             String downloadUrl,
             String fileName,
             String title,
-            String author
+            String author,
+            int gutenbergId
     ) {
         if (!isAdded()) {
             return;
@@ -2702,8 +2894,11 @@ public class LibraryFragment extends Fragment {
 
         googleBooksProgress.setVisibility(View.VISIBLE);
 
-        GutendexClient.getApi()
-                .downloadEpub(downloadUrl)
+        ProjectGutenbergClient.getApi()
+                .downloadEpub(
+                        downloadUrl,
+                        "https://www.gutenberg.org/ebooks/" + gutenbergId
+                )
                 .enqueue(new Callback<ResponseBody>() {
                     @Override
                     public void onResponse(
@@ -2766,7 +2961,7 @@ public class LibraryFragment extends Fragment {
     ) {
         File tempFile = new File(
                 appContext.getCacheDir(),
-                "gutendex_epub_" + System.currentTimeMillis() + ".epub"
+                "gutenberg_epub_" + System.currentTimeMillis() + ".epub"
         );
 
         try (
