@@ -184,6 +184,7 @@ public final class ProjectGutenbergParser {
 
         book.title = textOf(firstDirectChild(entry, "title"));
         String entryId = textOf(firstDirectChild(entry, "id"));
+        book.id = extractBookId(entryId);
         book.publishedDate = textOf(firstDirectChild(entry, "published"));
 
         List<Element> authors = directChildren(entry, "author");
@@ -258,7 +259,6 @@ public final class ProjectGutenbergParser {
             book.epubUrl = BASE_URL + "ebooks/" + book.id + ".epub.images";
         }
 
-        book.id = extractBookId(entryId);
         if (book.id <= 0) {
             book.id = extractBookId(book.epubUrl);
         }
