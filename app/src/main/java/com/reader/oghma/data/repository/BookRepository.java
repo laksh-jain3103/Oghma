@@ -4,6 +4,7 @@ import android.app.Application;
 
 import androidx.lifecycle.LiveData;
 
+import com.reader.oghma.api.metadata.TagNormalizer;
 import com.reader.oghma.data.dao.BookDao;
 import com.reader.oghma.data.dao.BookTagDao;
 import com.reader.oghma.data.dao.BookTagItem;
@@ -17,7 +18,6 @@ import com.reader.oghma.data.entity.Tag;
 import com.reader.oghma.data.entity.TagSuppression;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -177,12 +177,11 @@ public class BookRepository {
             if (displayNames != null) {
                 for (String name : displayNames) {
                     if (name == null || name.trim().isEmpty()) continue;
-                    String trimmed = name.trim();
-                    String normalized = trimmed.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+                    String normalized = TagNormalizer.normalizeKey(name);
                     if (tagSuppressionDao.isSuppressed(bookId, normalized)) {
                         continue;
                     }
-                    int tagId = getOrCreateTagIdSync(trimmed);
+                    int tagId = getOrCreateTagIdSync(name);
                     if (tagId > 0) {
                         BookTag bt = new BookTag();
                         bt.bookId = bookId;
@@ -203,10 +202,9 @@ public class BookRepository {
     public void addUserTag(int bookId, String tagName) {
         executor.execute(() -> {
             if (tagName == null || tagName.trim().isEmpty()) return;
-            String trimmed = tagName.trim();
-            String normalized = trimmed.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+            String normalized = TagNormalizer.normalizeKey(tagName);
             tagSuppressionDao.delete(bookId, normalized);
-            int tagId = getOrCreateTagIdSync(trimmed);
+            int tagId = getOrCreateTagIdSync(tagName);
             if (tagId > 0) {
                 BookTag bt = new BookTag();
                 bt.bookId = bookId;
@@ -268,8 +266,8 @@ public class BookRepository {
     }
 
     private int getOrCreateTagIdSync(String displayName) {
-        String trimmed = displayName.trim();
-        String normalized = trimmed.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+        String trimmed = displayName != null ? displayName.trim() : "";
+        String normalized = TagNormalizer.normalizeKey(displayName);
         Tag existing = tagDao.getByNormalizedName(normalized);
         if (existing != null) {
             return existing.tagId;

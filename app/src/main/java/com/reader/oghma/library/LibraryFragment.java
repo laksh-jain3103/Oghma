@@ -750,176 +750,156 @@ public class LibraryFragment extends Fragment {
     // =========================================================
 
     private void showBookMenu(Book book) {
+        android.content.Context context = requireContext();
+        AlertDialog dialog = new AlertDialog.Builder(context).create();
 
-        String bookmarkOption =
-                book.isBookmarked
-                        ? "Remove Bookmark"
-                        : "Add Bookmark";
+        LinearLayout root = new LinearLayout(context);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dpToPx(20), dpToPx(20), dpToPx(20), dpToPx(20));
 
-        String[] options = {
-                bookmarkOption,
-                "Book details",
-                "Edit tags",
-                "Remove from library"
-        };
+        // 1. Title heading
+        TextView titleView = new TextView(context);
+        titleView.setText(book.title != null ? book.title : "Untitled");
+        titleView.setTextSize(20);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+        titleView.setTextColor(getResources().getColor(R.color.text_primary));
+        titleView.setMaxLines(2);
+        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        root.addView(titleView);
 
+        View sep = new View(context);
+        sep.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(12)));
+        root.addView(sep);
 
-        new AlertDialog.Builder(
-                requireContext()
-        )
-                .setTitle(
-                        book.title
-                )
-                .setItems(
-                        options,
-                        (dialog, which) -> {
+        // 2. Details block (Author, Format, Progress)
+        LinearLayout detailsLayout = new LinearLayout(context);
+        detailsLayout.setOrientation(LinearLayout.VERTICAL);
+        detailsLayout.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
+        android.graphics.drawable.GradientDrawable detailsBg = new android.graphics.drawable.GradientDrawable();
+        detailsBg.setColor(getResources().getColor(R.color.surface_variant));
+        detailsBg.setCornerRadius(dpToPx(8));
+        detailsLayout.setBackground(detailsBg);
 
-                            if (which == 0) {
-
-                                boolean newStatus = !book.isBookmarked;
-
-                                viewModel.getRepository()
-                                        .updateBookmarkStatus(
-                                                book.bookId,
-                                                newStatus
-                                        );
-
-                                Toast.makeText(
-                                        requireContext(),
-                                        newStatus
-                                                ? "Added to bookmarks"
-                                                : "Removed from bookmarks",
-                                        Toast.LENGTH_SHORT
-                                ).show();
-
-                            } else if (which == 1) {
-
-                                showBookDetails(
-                                        book
-                                );
-
-                            } else if (which == 2) {
-
-                                showTagEditorDialog(
-                                        book
-                                );
-
-                            } else if (which == 3) {
-
-                                confirmRemoveBook(
-                                        book
-                                );
-                            }
-                        }
-                )
-                .show();
-    }
-
-
-    // =========================================================
-    // Book details
-    // =========================================================
-
-    private void showBookDetails(Book book) {
-
-        // Load the saved reading progress and tags first, then show the dialog.
-        new ProgressRepository(
-                requireActivity().getApplication()
-        ).get(
-                book.bookId,
-                progress -> {
-                    viewModel.getRepository().getTagsForBook(
-                            book.bookId,
-                            tags -> {
-                                if (!isAdded() || getActivity() == null) {
-                                    return;
-                                }
-
-                                getActivity().runOnUiThread(
-                                        () -> showBookDetailsDialog(
-                                                book,
-                                                progress,
-                                                tags
-                                        )
-                                );
-                            }
-                    );
-                }
-        );
-    }
-
-
-    private void showBookDetailsDialog(
-            Book book,
-            Progress progress,
-            List<Tag> tags
-    ) {
-
-        String progressText =
-                progress == null
-                        ? "Not started"
-                        : Math.round(progress.percentage) + "%";
-
-        String author =
-                book.author != null
-                        ? book.author
-                        : "Unknown author";
-
-
-        String format =
-                book.format != null
-                        ? book.format.toUpperCase()
-                        : "Unknown";
-
-
-        String tagsText = "None";
-        if (tags != null && !tags.isEmpty()) {
-            List<String> names = new ArrayList<>();
-            for (Tag t : tags) {
-                if (t.name != null) names.add(t.name);
-            }
-            if (!names.isEmpty()) {
-                tagsText = String.join(", ", names);
-            }
+        if (book.author != null && !book.author.trim().isEmpty()) {
+            TextView authorView = new TextView(context);
+            authorView.setText("Author: " + book.author);
+            authorView.setTextColor(getResources().getColor(R.color.text_secondary));
+            authorView.setTextSize(14);
+            detailsLayout.addView(authorView);
         }
 
+        if (book.format != null && !book.format.trim().isEmpty()) {
+            TextView formatView = new TextView(context);
+            formatView.setText("Format: " + book.format.toUpperCase());
+            formatView.setTextColor(getResources().getColor(R.color.text_secondary));
+            formatView.setTextSize(14);
+            detailsLayout.addView(formatView);
+        }
 
-        String details =
-                "Title: "
-                        + book.title
-                        + "\n\n"
-                        + "Author: "
-                        + author
-                        + "\n\n"
-                        + "Format: "
-                        + format
-                        + "\n\n"
-                        + "Series: Not set"
-                        + "\n\n"
-                        + "Progress: " + progressText
-                        + "\n\n"
-                        + "Tags: " + tagsText;
+        TextView progressView = new TextView(context);
+        progressView.setText("Progress: Loading...");
+        progressView.setTextColor(getResources().getColor(R.color.text_secondary));
+        progressView.setTextSize(14);
+        detailsLayout.addView(progressView);
 
+        root.addView(detailsLayout);
 
-        new AlertDialog.Builder(
-                requireContext()
-        )
-                .setTitle(
-                        "Book details"
-                )
-                .setMessage(
-                        details
-                )
-                .setPositiveButton(
-                        "Open book",
-                        (dialog, which) ->
-                                openBook(book)
-                )
-                .setNegativeButton(
-                        "Close",
-                        null
-                )
-                .show();
+        View sep2 = new View(context);
+        sep2.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(12)));
+        root.addView(sep2);
+
+        // 3. Tags line (clickable to open tag editor)
+        TextView tagsView = new TextView(context);
+        tagsView.setText("Tags: Loading...");
+        tagsView.setTextColor(getResources().getColor(R.color.text_primary));
+        tagsView.setTextSize(15);
+        tagsView.setPadding(dpToPx(12), dpToPx(10), dpToPx(12), dpToPx(10));
+        tagsView.setBackgroundResource(getSelectableItemBackground(context));
+        tagsView.setOnClickListener(v -> {
+            dialog.dismiss();
+            showTagEditorDialog(book);
+        });
+        root.addView(tagsView);
+
+        View sep3 = new View(context);
+        sep3.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(12)));
+        root.addView(sep3);
+
+        // 4. Action rows
+        TextView openBookRow = createActionRow(context, "Open book");
+        openBookRow.setOnClickListener(v -> {
+            dialog.dismiss();
+            openBook(book);
+        });
+        root.addView(openBookRow);
+
+        String bookmarkText = book.isBookmarked ? "Remove Bookmark" : "Add Bookmark";
+        TextView bookmarkRow = createActionRow(context, bookmarkText);
+        bookmarkRow.setOnClickListener(v -> {
+            boolean newStatus = !book.isBookmarked;
+            viewModel.getRepository().updateBookmarkStatus(book.bookId, newStatus);
+            book.isBookmarked = newStatus;
+            Toast.makeText(context, newStatus ? "Added to bookmarks" : "Removed from bookmarks", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        });
+        root.addView(bookmarkRow);
+
+        TextView editTagsRow = createActionRow(context, "Edit tags");
+        editTagsRow.setOnClickListener(v -> {
+            dialog.dismiss();
+            showTagEditorDialog(book);
+        });
+        root.addView(editTagsRow);
+
+        TextView removeRow = createActionRow(context, "Remove from library");
+        removeRow.setTextColor(getResources().getColor(android.R.color.holo_red_dark));
+        removeRow.setOnClickListener(v -> {
+            dialog.dismiss();
+            confirmRemoveBook(book);
+        });
+        root.addView(removeRow);
+
+        dialog.setView(root);
+        dialog.show();
+
+        // Load progress and tags off main thread
+        new ProgressRepository(requireActivity().getApplication()).get(book.bookId, progress -> {
+            viewModel.getRepository().getTagsForBook(book.bookId, tags -> {
+                if (!isAdded() || getActivity() == null) return;
+                getActivity().runOnUiThread(() -> {
+                    String progressText = progress == null ? "Not started" : Math.round(progress.percentage) + "%";
+                    progressView.setText("Progress: " + progressText);
+
+                    String tagsText = "None";
+                    if (tags != null && !tags.isEmpty()) {
+                        List<String> names = new ArrayList<>();
+                        for (Tag t : tags) {
+                            if (t.name != null) names.add(t.name);
+                        }
+                        if (!names.isEmpty()) {
+                            tagsText = String.join(", ", names);
+                        }
+                    }
+                    tagsView.setText("Tags: " + tagsText);
+                });
+            });
+        });
+    }
+
+    private int getSelectableItemBackground(android.content.Context context) {
+        android.util.TypedValue out = new android.util.TypedValue();
+        context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, out, true);
+        return out.resourceId;
+    }
+
+    private TextView createActionRow(android.content.Context context, String text) {
+        TextView row = new TextView(context);
+        row.setText(text);
+        row.setTextSize(16);
+        row.setTextColor(getResources().getColor(R.color.text_primary));
+        row.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
+        row.setBackgroundResource(getSelectableItemBackground(context));
+        return row;
     }
 
     private void showTagEditorDialog(Book book) {
