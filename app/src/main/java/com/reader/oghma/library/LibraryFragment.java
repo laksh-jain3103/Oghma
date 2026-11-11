@@ -2321,7 +2321,9 @@ public class LibraryFragment extends Fragment {
         }
 
         GutendexClient.getApi()
-                .searchBooks(query, "false", "application/epub+zip", page)
+                // Gutendex filters MIME types by prefix. "application/epub" matches
+        // application/epub+zip without relying on a literal '+' in the query string.
+        .searchBooks(query, "false", "application/epub", page)
                 .enqueue(new Callback<GutendexResponse>() {
                     @Override
                     public void onResponse(
@@ -2334,13 +2336,53 @@ public class LibraryFragment extends Fragment {
                         }
 
                         if (!response.isSuccessful() || response.body() == null) {
+                            String errorDetails = "";
+                            try {
+                                if (response.errorBody() != null) {
+                                    errorDetails = response.errorBody().string();
+                                }
+                            } catch (Exception e) {
+                                Log.w("GutendexSearch", "Could not read error response", e);
+                            }
+                            Log.e(
+                                    "GutendexSearch",
+                                    "HTTP " + response.code()
+                                            + " for query '" + query + "', page " + page
+                                            + ". " + errorDetails
+                            );
                             onComplete.run();
                             return;
                         }
 
                         GutendexResponse body = response.body();
                         if (body.results != null) {
+                            Log.d(
+                                    "GutendexSearch",
+                                    "HTTP " + response.code()
+                                            + ", page " + page
+                                            + ", results=" + body.results.size()
+                                            + ", total=" + body.count
+                            );
+                            for (GutendexBook result : body.results) {
+                                if (result != null) {
+                                    Log.d(
+                                            "GutendexSearch",
+                                            "Book ID=" + result.id
+                                                    + ", title=" + result.title
+                                                    + ", copyright=" + result.copyright
+                                                    + ", formats=" + (result.formats == null
+                                                    ? "null" : result.formats.keySet())
+                                                    + ", hasEpub=" + (result.getEpubDownloadUrl() != null)
+                                    );
+                                }
+                            }
                             accumulated.addAll(body.results);
+                        } else {
+                            Log.w(
+                                    "GutendexSearch",
+                                    "Successful response contained null results for query '"
+                                            + query + "', page " + page
+                            );
                         }
 
                         if (body.next != null
@@ -2360,6 +2402,11 @@ public class LibraryFragment extends Fragment {
                             @NonNull Call<GutendexResponse> call,
                             @NonNull Throwable t
                     ) {
+                        Log.e(
+                                "GutendexSearch",
+                                "Request failed for query '" + query + "', page " + page,
+                                t
+                        );
                         onComplete.run();
                     }
                 });
