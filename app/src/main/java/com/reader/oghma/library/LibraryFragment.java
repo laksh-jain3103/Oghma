@@ -490,6 +490,19 @@ public class LibraryFragment extends Fragment {
                                 .getApplication()
                 );
 
+        // The Notes page watches the database, so highlights saved in the reader show up
+        // here without having to open the page from the drawer.
+        bookmarkRepository.observeAll().observe(
+                getViewLifecycleOwner(),
+                bookmarks -> {
+                    allNotes.clear();
+                    if (bookmarks != null) {
+                        allNotes.addAll(bookmarks);
+                    }
+                    applyNotesSearch();
+                }
+        );
+
         bookmarkAdapter =
                 new BookmarkAdapter();
 
@@ -2479,24 +2492,8 @@ public class LibraryFragment extends Fragment {
 
     private void loadBookmarks() {
 
-        bookmarkRepository.getAllBookmarks(
-                bookmarks -> {
-
-                    if (!isAdded()) {
-                        return;
-                    }
-
-                    requireActivity().runOnUiThread(
-                            () -> {
-                                allNotes.clear();
-                                if (bookmarks != null) {
-                                    allNotes.addAll(bookmarks);
-                                }
-                                applyNotesSearch();
-                            }
-                    );
-                }
-        );
+        // Nothing to do: the observeAll() observer registered in onViewCreated keeps
+        // allNotes current after every save, edit and delete.
     }
 
     private void showFindMorePage() {
