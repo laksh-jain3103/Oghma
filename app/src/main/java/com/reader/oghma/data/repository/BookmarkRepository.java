@@ -1,6 +1,10 @@
 package com.reader.oghma.data.repository;
 
 import android.app.Application;
+import android.os.Handler;
+import android.os.Looper;
+
+import androidx.lifecycle.LiveData;
 
 import com.reader.oghma.data.dao.BookmarkDao;
 import com.reader.oghma.data.db.OghmaDatabase;
@@ -16,6 +20,9 @@ public class BookmarkRepository {
 
     private final ExecutorService executor =
             Executors.newSingleThreadExecutor();
+
+    private final Handler mainHandler =
+            new Handler(Looper.getMainLooper());
 
 
     public BookmarkRepository(
@@ -43,6 +50,40 @@ public class BookmarkRepository {
         );
     }
 
+
+    /** Live list of every highlight and note, newest first. */
+    public LiveData<List<Bookmark>> observeAll() {
+        return bookmarkDao.observeAll();
+    }
+
+    /**
+     * Saves a highlight and reports the real outcome on the main thread, so the screen
+     * only says "saved" when the row is actually in the database.
+     */
+    public void insertBookmark(
+            Bookmark bookmark,
+            SaveCallback callback
+    ) {
+        executor.execute(() -> {
+            try {
+                bookmarkDao.insert(bookmark);
+                if (callback != null) {
+                    mainHandler.post(callback::onSaved);
+                }
+            } catch (Exception e) {
+                android.util.Log.e("OghmaHighlight", "Bookmark insert failed", e);
+                if (callback != null) {
+                    mainHandler.post(() -> callback.onError(e));
+                }
+            }
+        });
+    }
+
+    public interface SaveCallback {
+        void onSaved();
+
+        void onError(Exception error);
+    }
 
     public void deleteBookmark(
             Bookmark bookmark

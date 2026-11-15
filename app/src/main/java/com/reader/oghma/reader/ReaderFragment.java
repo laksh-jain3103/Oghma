@@ -1084,6 +1084,25 @@ public class ReaderFragment extends Fragment {
             String note
     ) {
 
+        android.util.Log.d(
+                "OghmaHighlight",
+                "saveHighlight: bookId=" + currentBookId
+                        + ", textLen=" + (selectedText == null ? 0 : selectedText.length())
+                        + ", hasNote=" + (note != null && !note.trim().isEmpty())
+        );
+
+        // A blank selection must never be saved (the PDF colour dot used to allow it).
+        if (selectedText == null || selectedText.trim().isEmpty()) {
+
+            Toast.makeText(
+                    requireContext(),
+                    "No text selected.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
         Bookmark bookmark =
                 new Bookmark();
 
@@ -1110,22 +1129,49 @@ public class ReaderFragment extends Fragment {
                         ? note.trim()
                         : null;
 
+        // Application context: the callback can arrive after the reader has been closed.
+        final android.content.Context appContext =
+                requireContext().getApplicationContext();
+
+        final boolean hasNote =
+                bookmark.note != null;
+
         bookmarkRepository.insertBookmark(
-                bookmark
-        );
+                bookmark,
+                new BookmarkRepository.SaveCallback() {
 
-        HighlightColors.setLast(
-                requireContext(),
-                color
-        );
+                    @Override
+                    public void onSaved() {
 
-        Toast.makeText(
-                requireContext(),
-                bookmark.note != null
-                        ? "Note saved."
-                        : "Highlight saved.",
-                Toast.LENGTH_SHORT
-        ).show();
+                        android.util.Log.d("OghmaHighlight", "saveHighlight: saved");
+
+                        HighlightColors.setLast(
+                                appContext,
+                                color
+                        );
+
+                        Toast.makeText(
+                                appContext,
+                                hasNote
+                                        ? "Note saved."
+                                        : "Highlight saved.",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                    }
+
+                    @Override
+                    public void onError(Exception error) {
+
+                        android.util.Log.e("OghmaHighlight", "saveHighlight: failed", error);
+
+                        Toast.makeText(
+                                appContext,
+                                "Could not save the highlight.",
+                                Toast.LENGTH_LONG
+                        ).show();
+                    }
+                }
+        );
     }
 
 
@@ -1310,6 +1356,13 @@ public class ReaderFragment extends Fragment {
                         if (!isAdded()) {
                             return;
                         }
+
+                        android.util.Log.d(
+                                "OghmaHighlight",
+                                "PDF onHighlight: textLen=" + (text == null ? 0 : text.length())
+                                        + ", withNote=" + withNote
+                                        + ", page=" + page
+                        );
 
                         // Quick colour dot: the viewer already drew it, just save.
                         if (!withNote) {
