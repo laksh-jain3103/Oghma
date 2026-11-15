@@ -36,8 +36,8 @@ public class SettingsFragment extends Fragment {
                     public void onBack() {
 
                         requireActivity()
-                                .getSupportFragmentManager()
-                                .popBackStack();
+                                .getOnBackPressedDispatcher()
+                                .onBackPressed();
                     }
                 }
         );

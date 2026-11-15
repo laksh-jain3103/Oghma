@@ -1,5 +1,6 @@
 package com.reader.oghma.library;
 
+import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.content.Context;
 import android.text.TextUtils;
@@ -12,6 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.reader.oghma.R;
@@ -22,9 +24,12 @@ import com.reader.oghma.util.TagChipHelper;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class BookAdapter
         extends RecyclerView.Adapter<BookAdapter.BookViewHolder> {
@@ -39,20 +44,77 @@ public class BookAdapter
 
     private boolean gridMode = false;
 
+    private final android.util.LruCache<String, Bitmap> coverCache =
+            new android.util.LruCache<String, Bitmap>((int) (Runtime.getRuntime().maxMemory() / 1024 / 16)) {
+                @Override
+                protected int sizeOf(String key, Bitmap bitmap) {
+                    return bitmap.getByteCount() / 1024;
+                }
+            };
+
+    private final ExecutorService coverExecutor = Executors.newFixedThreadPool(2);
+
+    public BookAdapter() {
+        setHasStableIds(true);
+    }
+
+    @Override
+    public long getItemId(int position) {
+        return books.get(position).bookId;
+    }
+
 
     // =========================================================
     // Books
     // =========================================================
 
     public void setBooks(List<Book> newBooks) {
+        List<Book> oldBooks = new ArrayList<>(books);
+        Map<Integer, List<Tag>> oldTags = new HashMap<>(bookTagsMap);
+
+        DiffUtil.DiffResult diffResult = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override
+            public int getOldListSize() {
+                return oldBooks.size();
+            }
+
+            @Override
+            public int getNewListSize() {
+                return newBooks == null ? 0 : newBooks.size();
+            }
+
+            @Override
+            public boolean areItemsTheSame(int oldItemPosition, int newItemPosition) {
+                return oldBooks.get(oldItemPosition).bookId == newBooks.get(newItemPosition).bookId;
+            }
+
+            @Override
+            public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
+                Book o = oldBooks.get(oldItemPosition);
+                Book n = newBooks.get(newItemPosition);
+                if (o.bookId != n.bookId || o.isBookmarked != n.isBookmarked) return false;
+                if (!java.util.Objects.equals(o.title, n.title)) return false;
+                if (!java.util.Objects.equals(o.author, n.author)) return false;
+                if (!java.util.Objects.equals(o.coverPath, n.coverPath)) return false;
+                if (!java.util.Objects.equals(o.format, n.format)) return false;
+
+                List<Tag> oTags = oldTags.get(o.bookId);
+                List<Tag> nTags = bookTagsMap.get(n.bookId);
+                if (oTags == null) oTags = Collections.emptyList();
+                if (nTags == null) nTags = Collections.emptyList();
+                if (oTags.size() != nTags.size()) return false;
+                for (int i = 0; i < oTags.size(); i++) {
+                    if (!java.util.Objects.equals(oTags.get(i).name, nTags.get(i).name)) return false;
+                }
+                return true;
+            }
+        });
 
         books.clear();
-
         if (newBooks != null) {
             books.addAll(newBooks);
         }
-
-        notifyDataSetChanged();
+        diffResult.dispatchUpdatesTo(this);
     }
 
     public void setBookTags(Map<Integer, List<Tag>> map) {
@@ -61,7 +123,7 @@ public class BookAdapter
         } else {
             this.bookTagsMap.clear();
         }
-        notifyDataSetChanged();
+        setBooks(new ArrayList<>(books));
     }
 
 
@@ -247,16 +309,26 @@ public class BookAdapter
             holder.bookTagContainer.setVisibility(View.VISIBLE);
             holder.bookTagContainer.setMinimumHeight(TagChipHelper.dpToPx(holder.itemView.getContext(), 24));
             holder.bookTagContainer.setTag(book.bookId);
-            holder.bookTagContainer.post(() -> {
-                if (holder.bookTagContainer.getTag() == null || (int) holder.bookTagContainer.getTag() != book.bookId) {
-                    return;
-                }
-                int availableWidth = holder.bookTagContainer.getWidth() - holder.bookTagContainer.getPaddingLeft() - holder.bookTagContainer.getPaddingRight();
-                if (availableWidth <= 0) {
-                    availableWidth = holder.itemView.getWidth() - TagChipHelper.dpToPx(holder.itemView.getContext(), 48);
-                }
+
+            int availableWidth = holder.bookTagContainer.getWidth() - holder.bookTagContainer.getPaddingLeft() - holder.bookTagContainer.getPaddingRight();
+            if (availableWidth <= 0) {
+                availableWidth = holder.itemView.getWidth() - TagChipHelper.dpToPx(holder.itemView.getContext(), 48);
+            }
+
+            if (holder.bookTagContainer.getWidth() > 0 && availableWidth > 0) {
                 bindDynamicChips(holder.bookTagContainer, tags, availableWidth, book);
-            });
+            } else {
+                holder.bookTagContainer.post(() -> {
+                    if (holder.bookTagContainer.getTag() == null || (int) holder.bookTagContainer.getTag() != book.bookId) {
+                        return;
+                    }
+                    int w = holder.bookTagContainer.getWidth() - holder.bookTagContainer.getPaddingLeft() - holder.bookTagContainer.getPaddingRight();
+                    if (w <= 0) {
+                        w = holder.itemView.getWidth() - TagChipHelper.dpToPx(holder.itemView.getContext(), 48);
+                    }
+                    bindDynamicChips(holder.bookTagContainer, tags, w, book);
+                });
+            }
         }
 
 
@@ -313,41 +385,66 @@ public class BookAdapter
             ImageView imageView,
             String coverPath
     ) {
+        imageView.setTag(coverPath);
 
-        // No cover path
-
-        if (
-                coverPath == null
-                        || coverPath.isEmpty()
-        ) {
-
+        if (coverPath == null || coverPath.isEmpty()) {
             imageView.setImageDrawable(null);
-
             return;
         }
 
+        Bitmap cached = coverCache.get(coverPath);
+        if (cached != null) {
+            imageView.setImageBitmap(cached);
+            return;
+        }
 
-        File coverFile =
-                new File(coverPath);
-
-
-        // Cover file doesn't exist
-
+        File coverFile = new File(coverPath);
         if (!coverFile.exists()) {
-
             imageView.setImageDrawable(null);
-
             return;
         }
 
+        imageView.setImageDrawable(null);
 
-        // Load the cover
+        coverExecutor.execute(() -> {
+            if (!coverPath.equals(imageView.getTag())) {
+                return;
+            }
+            try {
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(coverFile.getAbsolutePath(), opts);
 
-        imageView.setImageBitmap(
-                BitmapFactory.decodeFile(
-                        coverFile.getAbsolutePath()
-                )
-        );
+                int targetW = 300;
+                int targetH = 450;
+                int sampleSize = 1;
+                if (opts.outWidth > targetW || opts.outHeight > targetH) {
+                    int halfW = opts.outWidth / 2;
+                    int halfH = opts.outHeight / 2;
+                    while ((halfW / sampleSize) >= targetW && (halfH / sampleSize) >= targetH) {
+                        sampleSize *= 2;
+                    }
+                }
+                opts.inJustDecodeBounds = false;
+                opts.inSampleSize = sampleSize;
+                opts.inPreferredConfig = Bitmap.Config.RGB_565;
+                Bitmap bmp = BitmapFactory.decodeFile(coverFile.getAbsolutePath(), opts);
+
+                if (bmp != null) {
+                    coverCache.put(coverPath, bmp);
+                    android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                    mainHandler.post(() -> {
+                        if (coverPath.equals(imageView.getTag())) {
+                            imageView.setImageBitmap(bmp);
+                        }
+                    });
+                }
+            } catch (OutOfMemoryError oom) {
+                System.gc();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
 
 
@@ -380,10 +477,14 @@ public class BookAdapter
             TextView chip = TagChipHelper.createChip(context, tag.name, 11f);
             chip.setMaxWidth(TagChipHelper.dpToPx(context, 120));
             chip.setOnClickListener(v -> {
-                if (onTagClickListener != null) onTagClickListener.onTagClick(tag);
+                if (onTagClickListener != null) {
+                    onTagClickListener.onTagClick(tag);
+                }
             });
             chip.setOnLongClickListener(v -> {
-                if (onTagLongClickListener != null) onTagLongClickListener.onTagLongClick(tag);
+                if (onTagLongClickListener != null) {
+                    onTagLongClickListener.onTagLongClick(tag);
+                }
                 return true;
             });
             chip.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),

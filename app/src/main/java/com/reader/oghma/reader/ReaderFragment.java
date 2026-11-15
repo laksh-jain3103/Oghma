@@ -246,8 +246,8 @@ public class ReaderFragment extends Fragment {
         backButton.setOnClickListener(
                 v ->
                         requireActivity()
-                                .getSupportFragmentManager()
-                                .popBackStack()
+                                .getOnBackPressedDispatcher()
+                                .onBackPressed()
         );
 
 
@@ -1907,6 +1907,13 @@ public class ReaderFragment extends Fragment {
         requireActivity()
                 .getSupportFragmentManager()
                 .beginTransaction()
+                .setReorderingAllowed(true)
+                .setCustomAnimations(
+                        R.anim.fade_slide_in,
+                        R.anim.fade_slide_out,
+                        R.anim.fade_slide_pop_in,
+                        R.anim.fade_slide_pop_out
+                )
                 .replace(
                         R.id.fragmentContainer,
                         new SettingsFragment()

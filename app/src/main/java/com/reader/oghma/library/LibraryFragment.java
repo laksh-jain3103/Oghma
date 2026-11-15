@@ -198,6 +198,12 @@ public class LibraryFragment extends Fragment {
     private final List<Book> allBookmarkedBooks = new ArrayList<>();
     private final List<Bookmark> allNotes = new ArrayList<>();
 
+    private int currentSavedPage = PAGE_LIBRARY;
+    private android.os.Parcelable savedLibraryScrollState;
+    private android.os.Parcelable savedBookmarksScrollState;
+    private android.os.Parcelable savedNotesScrollState;
+    private android.os.Parcelable savedFindMoreScrollState;
+
 
     // =========================================================
     // Import
@@ -227,6 +233,21 @@ public class LibraryFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
+        if (bookRecyclerView != null && bookRecyclerView.getLayoutManager() != null) {
+            savedLibraryScrollState = bookRecyclerView.getLayoutManager().onSaveInstanceState();
+        }
+        if (bookBookmarksRecyclerView != null && bookBookmarksRecyclerView.getLayoutManager() != null) {
+            savedBookmarksScrollState = bookBookmarksRecyclerView.getLayoutManager().onSaveInstanceState();
+        }
+        if (bookmarksRecyclerView != null && bookmarksRecyclerView.getLayoutManager() != null) {
+            savedNotesScrollState = bookmarksRecyclerView.getLayoutManager().onSaveInstanceState();
+        }
+        if (googleBooksRecyclerView != null && googleBooksRecyclerView.getLayoutManager() != null) {
+            savedFindMoreScrollState = googleBooksRecyclerView.getLayoutManager().onSaveInstanceState();
+        }
+        if (libraryPager != null) {
+            currentSavedPage = libraryPager.getCurrentItem();
+        }
         searchRequestId++;
         super.onDestroyView();
     }
@@ -593,9 +614,15 @@ public class LibraryFragment extends Fragment {
         // Start on Library
         // -----------------------------------------------------
 
-        navigationView.setCheckedItem(
-                R.id.nav_library
-        );
+        if (libraryPager != null && currentSavedPage >= 0) {
+            libraryPager.setCurrentItem(currentSavedPage, false);
+            if (navigationView != null) {
+                navigationView.setCheckedItem(navForPageIndex(currentSavedPage));
+            }
+        } else if (navigationView != null) {
+            navigationView.setCheckedItem(R.id.nav_library);
+        }
+        updateSearchButtonTint();
 
         requireActivity()
                 .getOnBackPressedDispatcher()
@@ -605,29 +632,49 @@ public class LibraryFragment extends Fragment {
 
                             @Override
                             public void handleOnBackPressed() {
+                                if (drawerLayout != null && drawerLayout.isDrawerOpen(androidx.core.view.GravityCompat.START)) {
+                                    drawerLayout.closeDrawer(androidx.core.view.GravityCompat.START);
+                                    return;
+                                }
 
-                                int selectedId =
-                                        navigationView.getCheckedItem() != null
-                                                ? navigationView.getCheckedItem().getItemId()
-                                                : R.id.nav_library;
+                                int currentItem = libraryPager != null ? libraryPager.getCurrentItem() : PAGE_LIBRARY;
+                                if (currentItem == PAGE_LIBRARY && searchQueryLibrary != null && !searchQueryLibrary.trim().isEmpty()) {
+                                    searchQueryLibrary = "";
+                                    applySearch();
+                                    updateSearchButtonTint();
+                                    return;
+                                }
+                                if (currentItem == PAGE_BOOKMARKS && searchQueryBookmarks != null && !searchQueryBookmarks.trim().isEmpty()) {
+                                    searchQueryBookmarks = "";
+                                    applyBookmarksSearch();
+                                    updateSearchButtonTint();
+                                    return;
+                                }
+                                if (currentItem == PAGE_NOTES && searchQueryNotes != null && !searchQueryNotes.trim().isEmpty()) {
+                                    searchQueryNotes = "";
+                                    applyNotesSearch();
+                                    updateSearchButtonTint();
+                                    return;
+                                }
 
-                                if (
-                                        selectedId != R.id.nav_library
-                                ) {
+                                if (selectedTagId != null) {
+                                    selectedTagId = null;
+                                    updateTagFilterRow();
+                                    applySearch();
+                                    return;
+                                }
 
+                                if (currentItem != PAGE_LIBRARY) {
                                     int index = pageIndexForNav(R.id.nav_library);
                                     libraryPager.setCurrentItem(index, true);
-                                    navigationView.setCheckedItem(
-                                            R.id.nav_library
-                                    );
-
+                                    if (navigationView != null) {
+                                        navigationView.setCheckedItem(R.id.nav_library);
+                                    }
                                     return;
                                 }
 
                                 setEnabled(false);
-
-                                requireActivity()
-                                        .onBackPressed();
+                                requireActivity().getOnBackPressedDispatcher().onBackPressed();
                             }
                         }
                 );
@@ -797,6 +844,13 @@ public class LibraryFragment extends Fragment {
         requireActivity()
                 .getSupportFragmentManager()
                 .beginTransaction()
+                .setReorderingAllowed(true)
+                .setCustomAnimations(
+                        R.anim.fade_slide_in,
+                        R.anim.fade_slide_out,
+                        R.anim.fade_slide_pop_in,
+                        R.anim.fade_slide_pop_out
+                )
                 .replace(
                         R.id.fragmentContainer,
                         readerFragment
@@ -833,6 +887,13 @@ public class LibraryFragment extends Fragment {
         requireActivity()
                 .getSupportFragmentManager()
                 .beginTransaction()
+                .setReorderingAllowed(true)
+                .setCustomAnimations(
+                        R.anim.fade_slide_in,
+                        R.anim.fade_slide_out,
+                        R.anim.fade_slide_pop_in,
+                        R.anim.fade_slide_pop_out
+                )
                 .replace(
                         R.id.fragmentContainer,
                         readerFragment
@@ -1525,6 +1586,10 @@ public class LibraryFragment extends Fragment {
 
         sortBooks(filteredBooks);
         adapter.setBooks(filteredBooks);
+        if (savedLibraryScrollState != null && bookRecyclerView != null && bookRecyclerView.getLayoutManager() != null) {
+            bookRecyclerView.getLayoutManager().onRestoreInstanceState(savedLibraryScrollState);
+            savedLibraryScrollState = null;
+        }
 
         boolean isEmpty = filteredBooks.isEmpty();
         bookRecyclerView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
@@ -1552,6 +1617,10 @@ public class LibraryFragment extends Fragment {
             }
         }
         bookBookmarksAdapter.setBooks(filtered);
+        if (savedBookmarksScrollState != null && bookBookmarksRecyclerView != null && bookBookmarksRecyclerView.getLayoutManager() != null) {
+            bookBookmarksRecyclerView.getLayoutManager().onRestoreInstanceState(savedBookmarksScrollState);
+            savedBookmarksScrollState = null;
+        }
         boolean isEmpty = filtered.isEmpty();
         bookBookmarksRecyclerView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
         if (bookBookmarksEmptyText != null) {
@@ -1583,6 +1652,10 @@ public class LibraryFragment extends Fragment {
             }
         }
         bookmarkAdapter.setBookmarks(filtered);
+        if (savedNotesScrollState != null && bookmarksRecyclerView != null && bookmarksRecyclerView.getLayoutManager() != null) {
+            bookmarksRecyclerView.getLayoutManager().onRestoreInstanceState(savedNotesScrollState);
+            savedNotesScrollState = null;
+        }
         boolean isEmpty = filtered.isEmpty();
         bookmarksRecyclerView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
         if (bookmarksEmptyText != null) {
@@ -1829,6 +1902,50 @@ public class LibraryFragment extends Fragment {
                 .show();
     }
 
+    private void launchLocalPicker() {
+        filePickerLauncher.launch(
+                new String[]{
+                        "application/epub+zip",
+                        "application/pdf",
+                        "text/plain"
+                }
+        );
+    }
+
+    private void openOnlineSources() {
+        int index = pageIndexForNav(R.id.nav_find_more);
+        libraryPager.setCurrentItem(index, true);
+        if (navigationView != null) {
+            navigationView.setCheckedItem(R.id.nav_find_more);
+        }
+        if (googleBooksSearchInput != null) {
+            googleBooksSearchInput.requestFocus();
+            android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager) requireContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(googleBooksSearchInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            }
+        }
+    }
+
+    private void showAddBookChoiceSheet() {
+        Context context = requireContext();
+        com.google.android.material.bottomsheet.BottomSheetDialog sheet = new com.google.android.material.bottomsheet.BottomSheetDialog(context);
+        View sheetView = getLayoutInflater().inflate(R.layout.dialog_add_book_choice, null);
+
+        sheetView.findViewById(R.id.optionFromDevice).setOnClickListener(v -> {
+            sheet.dismiss();
+            launchLocalPicker();
+        });
+
+        sheetView.findViewById(R.id.optionFromOnline).setOnClickListener(v -> {
+            sheet.dismiss();
+            openOnlineSources();
+        });
+
+        sheet.setContentView(sheetView);
+        sheet.show();
+    }
+
     // =========================================================
     // Buttons
     // =========================================================
@@ -1839,18 +1956,11 @@ public class LibraryFragment extends Fragment {
         // Add book
         // -----------------------------------------------------
 
-        addBookButton.setOnClickListener(
-                v -> {
+        addBookButton.setOnClickListener(v -> showAddBookChoiceSheet());
 
-                    filePickerLauncher.launch(
-                            new String[]{
-                                    "application/epub+zip",
-                                    "application/pdf",
-                                    "text/plain"
-                            }
-                    );
-                }
-        );
+        if (emptyLibrary != null) {
+            emptyLibrary.setOnClickListener(v -> showAddBookChoiceSheet());
+        }
 
 
         // -----------------------------------------------------
@@ -1919,6 +2029,13 @@ public class LibraryFragment extends Fragment {
                         requireActivity()
                                 .getSupportFragmentManager()
                                 .beginTransaction()
+                                .setReorderingAllowed(true)
+                                .setCustomAnimations(
+                                        R.anim.fade_slide_in,
+                                        R.anim.fade_slide_out,
+                                        R.anim.fade_slide_pop_in,
+                                        R.anim.fade_slide_pop_out
+                                )
                                 .replace(
                                         R.id.fragmentContainer,
                                         new SettingsFragment()
@@ -3595,6 +3712,10 @@ public class LibraryFragment extends Fragment {
 
         if (getView() != null && googleBooksAdapter != null) {
             googleBooksAdapter.setBooks(unifiedList);
+            if (savedFindMoreScrollState != null && googleBooksRecyclerView != null && googleBooksRecyclerView.getLayoutManager() != null) {
+                googleBooksRecyclerView.getLayoutManager().onRestoreInstanceState(savedFindMoreScrollState);
+                savedFindMoreScrollState = null;
+            }
         }
 
         if (getView() != null && googleBooksEmptyText != null) {
