@@ -57,6 +57,24 @@ public class BookMatcherTest {
         assertTrue(score2 >= 0.75);
     }
 
+    @Test
+    public void testFrankensteinMatch() {
+        double score = BookMatcher.calculateScore(
+                "Frankenstein; Or, The Modern Prometheus", Collections.singletonList("Mary Shelley"), null,
+                "Frankenstein", Collections.singletonList("Mary Shelley"), null
+        );
+        assertTrue(score >= 0.75);
+    }
+
+    @Test
+    public void testMobyDickMatch() {
+        double score = BookMatcher.calculateScore(
+                "Moby Dick; Or, The Whale", Collections.singletonList("Herman Melville"), null,
+                "Moby-Dick", Collections.singletonList("Herman Melville"), null
+        );
+        assertTrue(score >= 0.75);
+    }
+
     private void assertEquals(String expected, String actual) {
         org.junit.Assert.assertEquals(expected, actual);
     }

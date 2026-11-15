@@ -581,9 +581,16 @@ public class BookIngestor {
         long id = repository.insertBookSync(book);
         int bookId = (int) id;
 
+        boolean categoriesPassed = categories != null && !categories.isEmpty();
+        int categoryCount = categoriesPassed ? categories.size() : 0;
+        int tagsProduced = 0;
         boolean hasNonGenericTag = false;
-        if (categories != null && !categories.isEmpty()) {
+        String branchRun = "";
+        String finalStatus = "";
+
+        if (categoriesPassed) {
             List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
+            tagsProduced = tags.size();
             if (!tags.isEmpty()) {
                 repository.replaceAutoTagsSync(bookId, tags);
                 for (String t : tags) {
@@ -592,15 +599,30 @@ public class BookIngestor {
                         break;
                     }
                 }
+                if (hasNonGenericTag) {
+                    branchRun = "saved_tags_set_done";
+                    finalStatus = "DONE";
+                    repository.updateTagStatusSync(bookId, "DONE", 0);
+                } else {
+                    branchRun = "saved_generic_tags_set_pending";
+                    finalStatus = "PENDING";
+                    repository.updateTagStatusSync(bookId, "PENDING", 0);
+                    TagBookWorker.enqueue(context, bookId, false);
+                }
+            } else {
+                branchRun = "enqueued_worker_only";
+                finalStatus = "PENDING";
+                repository.updateTagStatusSync(bookId, "PENDING", 0);
+                TagBookWorker.enqueue(context, bookId, false);
             }
-        }
-
-        if (hasNonGenericTag) {
-            repository.updateTagStatusSync(bookId, "DONE", 0);
         } else {
+            branchRun = "enqueued_worker_only";
+            finalStatus = "PENDING";
             repository.updateTagStatusSync(bookId, "PENDING", 0);
             TagBookWorker.enqueue(context, bookId, false);
         }
+
+        android.util.Log.d("OghmaTagging", "BookIngestor.insertAndTag: bookId=" + bookId + ", categoriesPassed=" + categoriesPassed + ", categoryCount=" + categoryCount + ", tagsProduced=" + tagsProduced + ", branchRun=" + branchRun + ", finalStatus=" + finalStatus);
     }
 
     private void insertAndTagSafely(Book book, List<String> categories) {
