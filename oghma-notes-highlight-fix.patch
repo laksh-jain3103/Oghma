@@ -1,0 +1,384 @@
+diff -ruN pa/app/src/main/java/com/reader/oghma/data/dao/BookmarkDao.java pb/app/src/main/java/com/reader/oghma/data/dao/BookmarkDao.java
+--- pa/app/src/main/java/com/reader/oghma/data/dao/BookmarkDao.java	2026-11-15 21:44:37.542412996 +0000
++++ pb/app/src/main/java/com/reader/oghma/data/dao/BookmarkDao.java	2026-11-15 21:44:37.737470305 +0000
+@@ -1,5 +1,6 @@
+ package com.reader.oghma.data.dao;
+ 
++import androidx.lifecycle.LiveData;
+ import androidx.room.Dao;
+ import androidx.room.Delete;
+ import androidx.room.Insert;
+@@ -35,6 +36,14 @@
+     List<Bookmark> getAll();
+ 
+ 
++    /** Live list of every highlight and note, newest first. */
++    @Query(
++            "SELECT * FROM Bookmark " +
++                    "ORDER BY createdAt DESC"
++    )
++    LiveData<List<Bookmark>> observeAll();
++
++
+     @Query(
+             "UPDATE Bookmark " +
+                     "SET note = :note, color = :color " +
+diff -ruN pa/app/src/main/java/com/reader/oghma/data/repository/BookmarkRepository.java pb/app/src/main/java/com/reader/oghma/data/repository/BookmarkRepository.java
+--- pa/app/src/main/java/com/reader/oghma/data/repository/BookmarkRepository.java	2026-11-15 21:44:37.542555560 +0000
++++ pb/app/src/main/java/com/reader/oghma/data/repository/BookmarkRepository.java	2026-11-15 21:44:37.737645861 +0000
+@@ -1,6 +1,10 @@
+ package com.reader.oghma.data.repository;
+ 
+ import android.app.Application;
++import android.os.Handler;
++import android.os.Looper;
++
++import androidx.lifecycle.LiveData;
+ 
+ import com.reader.oghma.data.dao.BookmarkDao;
+ import com.reader.oghma.data.db.OghmaDatabase;
+@@ -17,6 +21,9 @@
+     private final ExecutorService executor =
+             Executors.newSingleThreadExecutor();
+ 
++    private final Handler mainHandler =
++            new Handler(Looper.getMainLooper());
++
+ 
+     public BookmarkRepository(
+             Application application
+@@ -44,6 +51,40 @@
+     }
+ 
+ 
++    /** Live list of every highlight and note, newest first. */
++    public LiveData<List<Bookmark>> observeAll() {
++        return bookmarkDao.observeAll();
++    }
++
++    /**
++     * Saves a highlight and reports the real outcome on the main thread, so the screen
++     * only says "saved" when the row is actually in the database.
++     */
++    public void insertBookmark(
++            Bookmark bookmark,
++            SaveCallback callback
++    ) {
++        executor.execute(() -> {
++            try {
++                bookmarkDao.insert(bookmark);
++                if (callback != null) {
++                    mainHandler.post(callback::onSaved);
++                }
++            } catch (Exception e) {
++                android.util.Log.e("OghmaHighlight", "Bookmark insert failed", e);
++                if (callback != null) {
++                    mainHandler.post(() -> callback.onError(e));
++                }
++            }
++        });
++    }
++
++    public interface SaveCallback {
++        void onSaved();
++
++        void onError(Exception error);
++    }
++
+     public void deleteBookmark(
+             Bookmark bookmark
+     ) {
+diff -ruN pa/app/src/main/java/com/reader/oghma/library/LibraryFragment.java pb/app/src/main/java/com/reader/oghma/library/LibraryFragment.java
+--- pa/app/src/main/java/com/reader/oghma/library/LibraryFragment.java	2026-11-15 21:44:37.542686661 +0000
++++ pb/app/src/main/java/com/reader/oghma/library/LibraryFragment.java	2026-11-15 21:44:37.737746044 +0000
+@@ -490,6 +490,19 @@
+                                 .getApplication()
+                 );
+ 
++        // The Notes page watches the database, so highlights saved in the reader show up
++        // here without having to open the page from the drawer.
++        bookmarkRepository.observeAll().observe(
++                getViewLifecycleOwner(),
++                bookmarks -> {
++                    allNotes.clear();
++                    if (bookmarks != null) {
++                        allNotes.addAll(bookmarks);
++                    }
++                    applyNotesSearch();
++                }
++        );
++
+         bookmarkAdapter =
+                 new BookmarkAdapter();
+ 
+@@ -2479,24 +2492,8 @@
+ 
+     private void loadBookmarks() {
+ 
+-        bookmarkRepository.getAllBookmarks(
+-                bookmarks -> {
+-
+-                    if (!isAdded()) {
+-                        return;
+-                    }
+-
+-                    requireActivity().runOnUiThread(
+-                            () -> {
+-                                allNotes.clear();
+-                                if (bookmarks != null) {
+-                                    allNotes.addAll(bookmarks);
+-                                }
+-                                applyNotesSearch();
+-                            }
+-                    );
+-                }
+-        );
++        // Nothing to do: the observeAll() observer registered in onViewCreated keeps
++        // allNotes current after every save, edit and delete.
+     }
+ 
+     private void showFindMorePage() {
+diff -ruN pa/app/src/main/java/com/reader/oghma/reader/EpubReaderBridge.kt pb/app/src/main/java/com/reader/oghma/reader/EpubReaderBridge.kt
+--- pa/app/src/main/java/com/reader/oghma/reader/EpubReaderBridge.kt	2026-11-15 21:44:37.543306910 +0000
++++ pb/app/src/main/java/com/reader/oghma/reader/EpubReaderBridge.kt	2026-11-15 21:44:37.738028468 +0000
+@@ -6,6 +6,7 @@
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.delay
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.withContext
+ import org.readium.r2.navigator.epub.EpubNavigatorFactory
+@@ -350,7 +351,7 @@
+ 
+                                                 callback.onBookmarkRequested()
+ 
+-                                                mode.finish()
++                                                holdActionMode(mode)
+ 
+                                                 return true
+                                             }
+@@ -364,7 +365,7 @@
+ 
+                                                 callback.onCopyRequested()
+ 
+-                                                mode.finish()
++                                                holdActionMode(mode)
+ 
+                                                 return true
+                                             }
+@@ -378,7 +379,7 @@
+ 
+                                                 callback.onDictionaryRequested()
+ 
+-                                                mode.finish()
++                                                holdActionMode(mode)
+ 
+                                                 return true
+                                             }
+@@ -392,7 +393,7 @@
+ 
+                                                 callback.onTranslateRequested()
+ 
+-                                                mode.finish()
++                                                holdActionMode(mode)
+ 
+                                                 return true
+                                             }
+@@ -406,7 +407,7 @@
+ 
+                                                 callback.onPlayRequested()
+ 
+-                                                mode.finish()
++                                                holdActionMode(mode)
+ 
+                                                 return true
+                                             }
+@@ -445,6 +446,37 @@
+         }
+     }
+ 
++    // The selection menu is kept open until the selected text has been read. Closing it
++    // straight away can clear the selection before the async read finishes, which showed
++    // up as "No text selected." even though text was selected.
++    private var pendingActionMode: ActionMode? = null
++
++    private fun holdActionMode(mode: ActionMode) {
++
++        pendingActionMode = mode
++
++        // Safety net: close the menu even if no handler ever reads the selection.
++        uiScope.launch {
++
++            delay(3000)
++
++            if (pendingActionMode === mode) {
++
++                finishActionMode()
++            }
++        }
++    }
++
++    /** Closes the selection menu once the selection has been read. */
++    fun finishActionMode() {
++
++        val mode = pendingActionMode
++
++        pendingActionMode = null
++
++        mode?.finish()
++    }
++
+     fun getCurrentSelection(
+         navigator: EpubNavigatorFragment,
+         callback: SelectionCallback
+@@ -459,6 +491,11 @@
+ 
+                 if (selection == null) {
+ 
++                    android.util.Log.d(
++                        "OghmaHighlight",
++                        "EPUB selection read: no selection"
++                    )
++
+                     callback.onSelection(
+                         null,
+                         null,
+@@ -480,6 +517,11 @@
+                 val chapterTitle =
+                     locator.title
+ 
++                android.util.Log.d(
++                    "OghmaHighlight",
++                    "EPUB selection read: textLen=${selectedText?.length ?: 0}, locatorLen=${locatorJson.length}, hasChapter=${chapterTitle != null}"
++                )
++
+                 callback.onSelection(
+                     selectedText,
+                     locatorJson,
+@@ -501,6 +543,9 @@
+                     null,
+                     null
+                 )
++            } finally {
++
++                finishActionMode()
+             }
+         }
+     }
+@@ -610,6 +655,9 @@
+                 e.printStackTrace()
+ 
+                 listener.onLookup("", null, Float.NaN, Float.NaN)
++            } finally {
++
++                finishActionMode()
+             }
+         }
+     }
+diff -ruN pa/app/src/main/java/com/reader/oghma/reader/ReaderFragment.java pb/app/src/main/java/com/reader/oghma/reader/ReaderFragment.java
+--- pa/app/src/main/java/com/reader/oghma/reader/ReaderFragment.java	2026-11-15 21:44:37.543173196 +0000
++++ pb/app/src/main/java/com/reader/oghma/reader/ReaderFragment.java	2026-11-15 21:44:37.738050649 +0000
+@@ -1084,6 +1084,25 @@
+             String note
+     ) {
+ 
++        android.util.Log.d(
++                "OghmaHighlight",
++                "saveHighlight: bookId=" + currentBookId
++                        + ", textLen=" + (selectedText == null ? 0 : selectedText.length())
++                        + ", hasNote=" + (note != null && !note.trim().isEmpty())
++        );
++
++        // A blank selection must never be saved (the PDF colour dot used to allow it).
++        if (selectedText == null || selectedText.trim().isEmpty()) {
++
++            Toast.makeText(
++                    requireContext(),
++                    "No text selected.",
++                    Toast.LENGTH_SHORT
++            ).show();
++
++            return;
++        }
++
+         Bookmark bookmark =
+                 new Bookmark();
+ 
+@@ -1110,22 +1129,49 @@
+                         ? note.trim()
+                         : null;
+ 
++        // Application context: the callback can arrive after the reader has been closed.
++        final android.content.Context appContext =
++                requireContext().getApplicationContext();
++
++        final boolean hasNote =
++                bookmark.note != null;
++
+         bookmarkRepository.insertBookmark(
+-                bookmark
+-        );
++                bookmark,
++                new BookmarkRepository.SaveCallback() {
+ 
+-        HighlightColors.setLast(
+-                requireContext(),
+-                color
+-        );
++                    @Override
++                    public void onSaved() {
++
++                        android.util.Log.d("OghmaHighlight", "saveHighlight: saved");
+ 
+-        Toast.makeText(
+-                requireContext(),
+-                bookmark.note != null
+-                        ? "Note saved."
+-                        : "Highlight saved.",
+-                Toast.LENGTH_SHORT
+-        ).show();
++                        HighlightColors.setLast(
++                                appContext,
++                                color
++                        );
++
++                        Toast.makeText(
++                                appContext,
++                                hasNote
++                                        ? "Note saved."
++                                        : "Highlight saved.",
++                                Toast.LENGTH_SHORT
++                        ).show();
++                    }
++
++                    @Override
++                    public void onError(Exception error) {
++
++                        android.util.Log.e("OghmaHighlight", "saveHighlight: failed", error);
++
++                        Toast.makeText(
++                                appContext,
++                                "Could not save the highlight.",
++                                Toast.LENGTH_LONG
++                        ).show();
++                    }
++                }
++        );
+     }
+ 
+ 
+@@ -1311,6 +1357,13 @@
+                             return;
+                         }
+ 
++                        android.util.Log.d(
++                                "OghmaHighlight",
++                                "PDF onHighlight: textLen=" + (text == null ? 0 : text.length())
++                                        + ", withNote=" + withNote
++                                        + ", page=" + page
++                        );
++
+                         // Quick colour dot: the viewer already drew it, just save.
+                         if (!withNote) {
+ 
