@@ -8,6 +8,7 @@ import com.reader.oghma.api.model.GoogleBooksResponse;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import retrofit2.Response;
 
@@ -20,11 +21,23 @@ public class GoogleBooksMetadataSource {
         } else {
             StringBuilder sb = new StringBuilder();
             if (title != null && !title.trim().isEmpty()) {
-                sb.append("intitle:").append(title.trim());
+                String primaryTitle = title.trim();
+                int colonIdx = primaryTitle.indexOf(':');
+                if (colonIdx != -1) primaryTitle = primaryTitle.substring(0, colonIdx).trim();
+                int semiIdx = primaryTitle.indexOf(';');
+                if (semiIdx != -1) primaryTitle = primaryTitle.substring(0, semiIdx).trim();
+                int orIdx = primaryTitle.toLowerCase(Locale.ROOT).indexOf(" or, ");
+                if (orIdx != -1) primaryTitle = primaryTitle.substring(0, orIdx).trim();
+
+                sb.append("intitle:\"").append(primaryTitle).append("\"");
             }
             if (authors != null && !authors.isEmpty() && authors.get(0) != null) {
-                if (sb.length() > 0) sb.append(" ");
-                sb.append("inauthor:").append(authors.get(0).trim());
+                String firstAuthor = authors.get(0).trim();
+                String surname = BookMatcher.extractSurname(firstAuthor);
+                if (!surname.isEmpty()) {
+                    if (sb.length() > 0) sb.append(" ");
+                    sb.append("inauthor:\"").append(surname).append("\"");
+                }
             }
             query = sb.toString();
         }

@@ -387,6 +387,9 @@ public class LibraryFragment extends Fragment {
             if (adapter != null) {
                 adapter.setBookTags(currentBookTagsMap);
             }
+            if (bookBookmarksAdapter != null) {
+                bookBookmarksAdapter.setBookTags(currentBookTagsMap);
+            }
             applySearch();
         });
 
@@ -707,6 +710,13 @@ public class LibraryFragment extends Fragment {
         bookRecyclerView.setAdapter(
                 adapter
         );
+
+        if (adapter != null) {
+            adapter.setBookTags(currentBookTagsMap);
+        }
+        if (bookBookmarksAdapter != null) {
+            bookBookmarksAdapter.setBookTags(currentBookTagsMap);
+        }
     }
 
     /** Change colour / note of a saved highlight, copy its text, or delete it. */
@@ -2444,7 +2454,7 @@ public class LibraryFragment extends Fragment {
                 + "-" + System.currentTimeMillis();
         String fileName = createSafeBookFileName(uniqueTitle, ".epub");
 
-        downloadGutenbergEpub(downloadUrl, fileName, title, author, gutenbergId);
+        downloadGutenbergEpub(downloadUrl, fileName, title, author, gutenbergId, book.categories);
     }
 
     private void searchGoogleBooks(String query) {
@@ -3448,11 +3458,11 @@ public class LibraryFragment extends Fragment {
                     List<String> names = new ArrayList<>();
                     for (GutendexBook.Author author : gBook.authors) {
                         if (author != null && author.name != null && !author.name.trim().isEmpty()) {
-                            names.add(author.name);
+                            names.add(AuthorUtils.fromLastFirst(author.name));
                         }
                     }
                     if (!names.isEmpty()) {
-                        authorStr = String.join(", ", names);
+                        authorStr = AuthorUtils.cleanAuthor(String.join(", ", names));
                     }
                 }
 
@@ -3477,8 +3487,16 @@ public class LibraryFragment extends Fragment {
                     continue;
                 }
 
-                String author = pgBook.authors == null || pgBook.authors.isEmpty()
-                        ? "Unknown author" : String.join(", ", pgBook.authors);
+                List<String> pgAuthors = new ArrayList<>();
+                if (pgBook.authors != null) {
+                    for (String a : pgBook.authors) {
+                        if (a != null && !a.trim().isEmpty()) {
+                            pgAuthors.add(AuthorUtils.fromLastFirst(a));
+                        }
+                    }
+                }
+                String author = pgAuthors.isEmpty()
+                        ? "Unknown author" : AuthorUtils.cleanAuthor(String.join(", ", pgAuthors));
 
                 UnifiedBookItem existing = findGutenbergBookById(unifiedList, pgBook.id);
                 if (existing != null) {
@@ -3662,7 +3680,8 @@ public class LibraryFragment extends Fragment {
             String fileName,
             String title,
             String author,
-            int gutenbergId
+            int gutenbergId,
+            List<String> categories
     ) {
         if (!isAdded()) {
             return;
@@ -3708,7 +3727,7 @@ public class LibraryFragment extends Fragment {
                         try {
                             downloadExecutor.execute(
                                     () -> saveDownloadedEpub(
-                                            appContext, body, fileName, title, author, ingestor
+                                            appContext, body, fileName, title, author, gutenbergId, categories, ingestor
                                     )
                             );
                         } catch (java.util.concurrent.RejectedExecutionException e) {
@@ -3739,8 +3758,33 @@ public class LibraryFragment extends Fragment {
             String fileName,
             String title,
             String author,
+            int gutenbergId,
+            List<String> categories,
             BookIngestor ingestor
     ) {
+        List<String> effectiveCategories = categories;
+        if ((effectiveCategories == null || effectiveCategories.isEmpty()) && gutenbergId > 0) {
+            try {
+                retrofit2.Call<com.reader.oghma.api.model.GutendexResponse> call = com.reader.oghma.api.GutendexClient.getApi()
+                        .byIds(String.valueOf(gutenbergId));
+                call.timeout().timeout(5, java.util.concurrent.TimeUnit.SECONDS);
+                retrofit2.Response<com.reader.oghma.api.model.GutendexResponse> resp = call.execute();
+                if (resp.isSuccessful() && resp.body() != null && resp.body().results != null && !resp.body().results.isEmpty()) {
+                    com.reader.oghma.api.model.GutendexBook gb = resp.body().results.get(0);
+                    if (gb != null) {
+                        List<String> fetched = new ArrayList<>();
+                        if (gb.subjects != null) fetched.addAll(gb.subjects);
+                        if (gb.bookshelves != null) fetched.addAll(gb.bookshelves);
+                        if (!fetched.isEmpty()) {
+                            effectiveCategories = fetched;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                effectiveCategories = null;
+            }
+        }
+
         File tempFile = new File(
                 appContext.getCacheDir(),
                 "gutenberg_epub_" + System.currentTimeMillis() + ".epub"
@@ -3795,7 +3839,8 @@ public class LibraryFragment extends Fragment {
                     fileName,
                     "epub",
                     title,
-                    author
+                    author,
+                    effectiveCategories
             );
 
             postDownloadMessage(

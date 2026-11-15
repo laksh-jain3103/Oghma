@@ -90,4 +90,57 @@ public class TagNormalizerTest {
         assertEquals("Custom Category", TagNormalizer.normalizeUserInput("  custom category  "));
         assertEquals("Already Capitalized", TagNormalizer.normalizeUserInput("Already Capitalized"));
     }
+
+    @Test
+    public void testSlashSeparatedCategories() {
+        List<String> raw = Arrays.asList("Fiction / Science Fiction / General");
+        List<String> mapped = TagNormalizer.map(raw);
+        assertTrue(mapped.contains("Science Fiction"));
+        assertTrue(mapped.contains("Fiction"));
+        assertFalse(mapped.contains("General"));
+    }
+
+    @Test
+    public void testBiographyGeneral() {
+        List<String> raw = Arrays.asList("Biography & Autobiography / General");
+        List<String> mapped = TagNormalizer.map(raw);
+        assertEquals(1, mapped.size());
+        assertEquals("Biography", mapped.get(0));
+    }
+
+    @Test
+    public void testAnythingGoesNotNoise() {
+        List<String> raw = Arrays.asList("Anything Goes");
+        List<String> mapped = TagNormalizer.map(raw);
+        assertTrue(mapped.contains("Anything Goes"));
+    }
+
+    @Test
+    public void testCategoryNovelsNotKept() {
+        List<String> raw = Arrays.asList("Category: Novels");
+        List<String> mapped = TagNormalizer.map(raw);
+        assertFalse(mapped.contains("Novels"));
+        assertFalse(mapped.contains("Category: Novels"));
+    }
+
+    @Test
+    public void testEnglandFictionSubjectHeading() {
+        List<String> raw = Arrays.asList("England -- Fiction");
+        List<String> mapped = TagNormalizer.map(raw);
+        assertTrue(mapped.contains("Fiction"));
+        assertFalse(mapped.contains("England"));
+    }
+
+    @Test
+    public void testAliceSubjectsAndBookshelves() {
+        List<String> raw = Arrays.asList(
+                "Children's stories", "Fantasy fiction",
+                "Category: British Literature", "Category: Classics of Literature",
+                "Children's Literature", "Alice (Fictitious character from Carroll) -- Juvenile fiction"
+        );
+        List<String> mapped = TagNormalizer.map(raw);
+        assertTrue(mapped.contains("Fantasy"));
+        assertTrue(mapped.contains("Children's"));
+        assertTrue(mapped.contains("Classics"));
+    }
 }

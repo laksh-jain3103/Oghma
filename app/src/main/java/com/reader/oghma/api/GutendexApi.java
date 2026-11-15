@@ -19,6 +19,11 @@ public interface GutendexApi {
             @Query("page") int page
     );
 
+    @GET("books/")
+    Call<GutendexResponse> byIds(
+            @Query("ids") String ids
+    );
+
     @Streaming
     @GET
     Call<ResponseBody> downloadEpub(@Url String url);

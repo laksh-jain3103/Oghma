@@ -23,6 +23,12 @@ public class GutendexBook {
     @SerializedName("formats")
     public Map<String, String> formats;
 
+    @SerializedName("subjects")
+    public List<String> subjects;
+
+    @SerializedName("bookshelves")
+    public List<String> bookshelves;
+
     public static class Author {
         @SerializedName("name")
         public String name;

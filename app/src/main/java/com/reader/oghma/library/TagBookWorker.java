@@ -2,6 +2,7 @@ package com.reader.oghma.library;
 
 import android.app.Application;
 import android.content.Context;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.work.BackoffPolicy;
@@ -85,7 +86,7 @@ public class TagBookWorker extends Worker {
         //  - Files named like downloads ("Author - Title (z-lib.org)"): dig the title and
         //    author out of the name, trying both orders, then ISBN if the name holds one.
         boolean authorKnown = !AuthorUtils.isUnknownOrEmpty(book.author);
-        String cleanedAuthor = AuthorUtils.cleanAuthor(book.author);
+        String cleanedAuthor = AuthorUtils.cleanAuthor(AuthorUtils.fromLastFirst(book.author));
 
         String isbn = FilenameParser.extractIsbn(book.title);
         if (isbn == null && book.filePath != null) {
@@ -110,51 +111,62 @@ public class TagBookWorker extends Worker {
 
         BookMetadataService.Result found = null;
         boolean networkProblem = false;
+        String matchedSource = "none";
 
         try {
             if (isbn != null) {
                 BookMetadataService.Result r = service.fetchAndNormalizeTags(
                         null, null, isbn, apiKey, packageName, cert);
-                if (r.status == BookMetadataService.Status.SUCCESS) found = r;
-                else if (r.status == BookMetadataService.Status.NETWORK_ERROR) networkProblem = true;
+                if (r.status == BookMetadataService.Status.SUCCESS) {
+                    found = r;
+                    matchedSource = "ISBN";
+                } else if (r.status == BookMetadataService.Status.NETWORK_ERROR) networkProblem = true;
             }
 
             for (FilenameParser.Candidate c : candidates) {
                 if (found != null) break;
                 BookMetadataService.Result r = service.fetchAndNormalizeTags(
                         c.title, c.authors, null, apiKey, packageName, cert);
-                if (r.status == BookMetadataService.Status.SUCCESS) found = r;
-                else if (r.status == BookMetadataService.Status.NETWORK_ERROR) networkProblem = true;
+                if (r.status == BookMetadataService.Status.SUCCESS) {
+                    found = r;
+                    matchedSource = "CandidateSearch";
+                } else if (r.status == BookMetadataService.Status.NETWORK_ERROR) networkProblem = true;
             }
         } catch (Exception e) {
-            // Bad JSON, unexpected response, anything else: treat as a failed attempt.
             networkProblem = true;
         }
 
+        int tagsSaved = 0;
+        String finalStatus;
         if (found != null) {
             repository.replaceAutoTagsSync(bookId, found.tags);
+            tagsSaved = found.tags.size();
+            finalStatus = "DONE";
 
-            // The file name was all we had. Replace it with the catalogue title/author.
             if (!authorKnown
                     && found.matchedTitle != null && !found.matchedTitle.trim().isEmpty()
                     && !found.matchedAuthors.isEmpty()) {
                 repository.updateTitleAuthorSync(
                         bookId,
                         found.matchedTitle.trim(),
-                        AuthorUtils.cleanAuthor(android.text.TextUtils.join(", ", found.matchedAuthors)));
+                        AuthorUtils.cleanAuthor(AuthorUtils.fromLastFirst(android.text.TextUtils.join(", ", found.matchedAuthors))));
             }
 
             repository.updateTagStatusSync(bookId, "DONE", book.tagAttempts);
+            Log.d("OghmaTagging", "TagBookWorker: bookId=" + bookId + ", categoriesPassed=false, tagsProduced=0, candidatesTried=" + candidates.size() + ", sourceMatched=" + matchedSource + ", tagsSaved=" + tagsSaved + ", finalStatus=" + finalStatus);
             return Result.success();
         }
 
         if (!networkProblem) {
             repository.updateTagStatusSync(bookId, "NOT_FOUND", book.tagAttempts);
+            Log.d("OghmaTagging", "TagBookWorker: bookId=" + bookId + ", categoriesPassed=false, tagsProduced=0, candidatesTried=" + candidates.size() + ", sourceMatched=none, tagsSaved=0, finalStatus=NOT_FOUND");
             return Result.success();
         }
 
         int newAttempts = book.tagAttempts + 1;
+        finalStatus = newAttempts < 3 ? "RETRY" : "FAILED";
         repository.updateTagStatusSync(bookId, "FAILED", newAttempts);
+        Log.d("OghmaTagging", "TagBookWorker: bookId=" + bookId + ", categoriesPassed=false, tagsProduced=0, candidatesTried=" + candidates.size() + ", sourceMatched=none, tagsSaved=0, finalStatus=" + finalStatus);
         return newAttempts < 3 ? Result.retry() : Result.failure();
     }
 }

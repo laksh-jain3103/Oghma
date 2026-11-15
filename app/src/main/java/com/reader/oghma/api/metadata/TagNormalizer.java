@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class TagNormalizer {
 
@@ -26,7 +27,8 @@ public class TagNormalizer {
             "new york times",
             "reading level",
             "fiction / general",
-            "fiction/general"
+            "fiction/general",
+            "novels"
     ));
 
     private static final List<String> PRIMARY_GENRES_ORDER = Arrays.asList(
@@ -157,6 +159,7 @@ public class TagNormalizer {
 
         // Poetry
         addAlias("poetry", "Poetry");
+        addAlias("poems", "Poetry");
 
         // Graphic Novels
         addAlias("graphic novels", "Graphic Novels");
@@ -171,7 +174,7 @@ public class TagNormalizer {
         addAlias("politics", "Politics");
         addAlias("political science", "Politics");
 
-        // ---- Subgenres and themes. Each also adds its parent genre. ----
+        // Subgenres and themes (original)
         addSub("epic fantasy", "Epic Fantasy", "Fantasy");
         addSub("high fantasy", "High Fantasy", "Fantasy");
         addSub("urban fantasy", "Urban Fantasy", "Fantasy");
@@ -222,11 +225,20 @@ public class TagNormalizer {
         addSub("children's", "Children's", null);
         addSub("love stories", "Romance", null);
 
+        // Additional required aliases (Task 1)
+        addAlias("classics of literature", "Classics");
+        addAlias("children & young adult reading", "Young Adult");
+        addSub("gothic fiction", "Gothic Fiction", "Horror");
+        addAlias("war stories", "War");
+        addSub("domestic fiction", "Domestic Fiction", "Fiction");
+        addAlias("juvenile fiction", "Fiction");
+        addAlias("children's literature", "Children's");
+        addAlias("children's stories", "Children's");
+
         CANONICAL_VALUES.addAll(ALIAS_MAP.values());
         CANONICAL_VALUES.addAll(PARENT.keySet());
     }
 
-    /** Subgenre or theme: maps to its own tag, and also adds a parent genre if given. */
     private static void addSub(String key, String canonical, String parent) {
         addAlias(key, canonical);
         if (parent != null) {
@@ -252,36 +264,56 @@ public class TagNormalizer {
 
         for (String raw : rawTags) {
             if (raw == null) continue;
-            String trimmed = raw.trim();
-            if (trimmed.isEmpty()) continue;
+            String trimmedRaw = raw.trim();
+            if (trimmedRaw.isEmpty()) continue;
 
-            String lower = trimmed.toLowerCase(Locale.ROOT);
+            String[] parts = trimmedRaw.split("/");
+            for (String part : parts) {
+                if (part == null) continue;
+                String trimmedPart = part.trim();
+                if (trimmedPart.isEmpty()) continue;
 
-            // Award handling: anything containing the word "award" (any case) -> "Award Winner"
-            if (lower.matches(".*\\baward\\b.*") || lower.contains("award")) {
-                result.add("Award Winner");
-                continue;
-            }
+                String lowerPart = trimmedPart.toLowerCase(Locale.ROOT);
+                if (lowerPart.startsWith("browsing:")) continue;
+                if (lowerPart.startsWith("category:")) {
+                    trimmedPart = trimmedPart.substring(9).trim();
+                }
+                if (trimmedPart.isEmpty()) continue;
 
-            String key = normalizeKey(trimmed);
-            if (isNoise(key)) continue;
+                String lower = trimmedPart.toLowerCase(Locale.ROOT);
 
-            // Direct map lookup
-            if (ALIAS_MAP.containsKey(key)) {
-                addWithParent(result, ALIAS_MAP.get(key));
-                continue;
-            }
+                // Award handling
+                if (lower.matches(".*\\baward\\b.*") || lower.contains("award")) {
+                    result.add("Award Winner");
+                    continue;
+                }
 
-            // Keyword matches: a raw tag like "Epic fantasy, American" can hit several aliases.
-            Set<String> matches = findKeywordMatches(key);
-            if (!matches.isEmpty()) {
-                for (String m : matches) addWithParent(result, m);
-                continue;
-            }
+                String key = normalizeKey(trimmedPart);
+                if (isNoise(key)) continue;
 
-            // Unmapped categories: keep if valid according to rules
-            if (isValidUnmappedTag(trimmed, key)) {
-                result.add(toTitleCase(trimmed));
+                // Direct map lookup
+                if (ALIAS_MAP.containsKey(key)) {
+                    addWithParent(result, ALIAS_MAP.get(key));
+                    continue;
+                }
+
+                // Keyword matches
+                Set<String> matches = findKeywordMatches(key);
+                if (!matches.isEmpty()) {
+                    for (String m : matches) addWithParent(result, m);
+                    continue;
+                }
+
+                // Parts containing "--", "(", ")", or "," must NOT use unmapped fallback
+                boolean hasComplexPunctuation = trimmedPart.contains("--") || trimmedPart.contains("(") || trimmedPart.contains(")") || trimmedPart.contains(",");
+                if (hasComplexPunctuation) {
+                    continue;
+                }
+
+                // Unmapped categories
+                if (isValidUnmappedTag(trimmedPart, key)) {
+                    result.add(toTitleCase(trimmedPart));
+                }
             }
         }
 
@@ -351,7 +383,6 @@ public class TagNormalizer {
             return ALIAS_MAP.get(key);
         }
 
-        // If user typed in all lowercase, convert to Title Case
         if (trimmed.equals(trimmed.toLowerCase(Locale.ROOT))) {
             return toTitleCase(trimmed);
         }
@@ -362,8 +393,16 @@ public class TagNormalizer {
     private static boolean isNoise(String key) {
         if (key.isEmpty()) return true;
         for (String noise : NOISE_PATTERNS) {
-            if (key.equalsIgnoreCase(noise) || key.contains(noise)) {
+            if (key.equalsIgnoreCase(noise)) {
                 return true;
+            }
+            try {
+                Pattern p = Pattern.compile("\\b" + Pattern.quote(noise) + "\\b", Pattern.CASE_INSENSITIVE);
+                if (p.matcher(key).find()) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+                if (key.contains(noise)) return true;
             }
         }
         return false;
@@ -375,10 +414,6 @@ public class TagNormalizer {
         if (parent != null) out.add(parent);
     }
 
-    /**
-     * Every alias contained in the key, except aliases that are part of a longer matching
-     * alias ("history" inside "alternative history", "fantasy" inside "epic fantasy").
-     */
     private static Set<String> findKeywordMatches(String key) {
         java.util.TreeSet<String> hits = new java.util.TreeSet<>();
         for (String alias : ALIAS_MAP.keySet()) {
@@ -401,19 +436,14 @@ public class TagNormalizer {
     }
 
     private static String toTitleCase(String text) {
-        if (text == null || text.isEmpty()) return "";
+        if (text == null || text.isEmpty()) return text;
+        String[] words = text.split("\\s+");
         StringBuilder sb = new StringBuilder();
-        boolean nextTitle = true;
-        for (char c : text.toCharArray()) {
-            if (Character.isWhitespace(c) || c == '-' || c == '/') {
-                nextTitle = true;
-                sb.append(c);
-            } else if (nextTitle) {
-                sb.append(Character.toTitleCase(c));
-                nextTitle = false;
-            } else {
-                sb.append(Character.toLowerCase(c));
-            }
+        for (String w : words) {
+            if (w.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(Character.toUpperCase(w.charAt(0)))
+              .append(w.substring(1).toLowerCase(Locale.ROOT));
         }
         return sb.toString();
     }

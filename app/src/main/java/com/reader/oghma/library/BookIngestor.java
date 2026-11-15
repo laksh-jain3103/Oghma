@@ -581,16 +581,26 @@ public class BookIngestor {
         long id = repository.insertBookSync(book);
         int bookId = (int) id;
 
+        boolean hasNonGenericTag = false;
         if (categories != null && !categories.isEmpty()) {
             List<String> tags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
             if (!tags.isEmpty()) {
                 repository.replaceAutoTagsSync(bookId, tags);
-                repository.updateTagStatusSync(bookId, "DONE", 0);
-                return;
+                for (String t : tags) {
+                    if (!"Fiction".equalsIgnoreCase(t) && !"Nonfiction".equalsIgnoreCase(t)) {
+                        hasNonGenericTag = true;
+                        break;
+                    }
+                }
             }
         }
 
-        TagBookWorker.enqueue(context, bookId, false);
+        if (hasNonGenericTag) {
+            repository.updateTagStatusSync(bookId, "DONE", 0);
+        } else {
+            repository.updateTagStatusSync(bookId, "PENDING", 0);
+            TagBookWorker.enqueue(context, bookId, false);
+        }
     }
 
     private void insertAndTagSafely(Book book, List<String> categories) {
@@ -629,7 +639,7 @@ public class BookIngestor {
                             book.title = parsedTitle.trim();
                         }
                         if (isUsableAuthor(parsedAuthor)) {
-                            book.author = AuthorUtils.cleanAuthor(parsedAuthor);
+                            book.author = AuthorUtils.cleanAuthor(AuthorUtils.fromLastFirst(parsedAuthor));
                         }
                         if (generatedCover != null && generatedCover.exists()) {
                             book.coverPath = generatedCover.getAbsolutePath();

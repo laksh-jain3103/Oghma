@@ -42,6 +42,21 @@ public class BookMatcherTest {
         assertEquals("dune", normalized);
     }
 
+    @Test
+    public void testClassicTitleSemicolonOrMatch() {
+        double score1 = BookMatcher.calculateScore(
+                "Frankenstein; Or, The Modern Prometheus", Collections.singletonList("Mary Shelley"), null,
+                "Frankenstein", Collections.singletonList("Mary Shelley"), null
+        );
+        assertTrue(score1 >= 0.75);
+
+        double score2 = BookMatcher.calculateScore(
+                "Moby Dick; Or, The Whale", Collections.singletonList("Herman Melville"), null,
+                "Moby-Dick", Collections.singletonList("Herman Melville"), null
+        );
+        assertTrue(score2 >= 0.75);
+    }
+
     private void assertEquals(String expected, String actual) {
         org.junit.Assert.assertEquals(expected, actual);
     }

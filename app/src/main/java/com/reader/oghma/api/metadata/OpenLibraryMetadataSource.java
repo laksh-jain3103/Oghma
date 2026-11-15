@@ -3,6 +3,7 @@ package com.reader.oghma.api.metadata;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import retrofit2.Response;
 
@@ -18,7 +19,15 @@ public class OpenLibraryMetadataSource {
             queryIsbn = isbn.trim();
         } else {
             if (title != null && !title.trim().isEmpty()) {
-                queryTitle = title.trim();
+                String primaryTitle = title.trim();
+                int colonIdx = primaryTitle.indexOf(':');
+                if (colonIdx != -1) primaryTitle = primaryTitle.substring(0, colonIdx).trim();
+                int semiIdx = primaryTitle.indexOf(';');
+                if (semiIdx != -1) primaryTitle = primaryTitle.substring(0, semiIdx).trim();
+                int orIdx = primaryTitle.toLowerCase(Locale.ROOT).indexOf(" or, ");
+                if (orIdx != -1) primaryTitle = primaryTitle.substring(0, orIdx).trim();
+
+                queryTitle = primaryTitle;
             }
             if (authors != null && !authors.isEmpty() && authors.get(0) != null) {
                 queryAuthor = authors.get(0).trim();

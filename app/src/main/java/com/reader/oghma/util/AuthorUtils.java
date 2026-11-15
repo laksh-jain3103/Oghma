@@ -7,6 +7,23 @@ import java.util.Set;
 
 public class AuthorUtils {
 
+    public static String fromLastFirst(String author) {
+        if (author == null) return null;
+        String trimmed = author.trim();
+        if (trimmed.contains("&") || trimmed.toLowerCase(Locale.ROOT).contains(" and ")) {
+            return trimmed;
+        }
+        int commaIdx = trimmed.indexOf(',');
+        if (commaIdx != -1 && trimmed.indexOf(',', commaIdx + 1) == -1) {
+            String last = trimmed.substring(0, commaIdx).trim();
+            String first = trimmed.substring(commaIdx + 1).trim();
+            if (!last.isEmpty() && !first.isEmpty() && !last.contains(" ")) {
+                return first + " " + last;
+            }
+        }
+        return trimmed;
+    }
+
     public static String cleanAuthor(String rawAuthor) {
         if (rawAuthor == null || rawAuthor.trim().isEmpty()) {
             return "Unknown author";

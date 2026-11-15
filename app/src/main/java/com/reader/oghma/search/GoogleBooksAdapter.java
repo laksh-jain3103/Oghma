@@ -186,7 +186,9 @@ public class GoogleBooksAdapter
 
         holder.bookTagContainer.removeAllViews();
         List<String> categories = null;
-        if (book.googleBookItem != null && book.googleBookItem.volumeInfo != null) {
+        if (book.source == UnifiedBookItem.Source.GUTENBERG) {
+            categories = book.categories;
+        } else if (book.googleBookItem != null && book.googleBookItem.volumeInfo != null) {
             categories = book.googleBookItem.volumeInfo.categories;
         }
 
@@ -194,7 +196,9 @@ public class GoogleBooksAdapter
             List<String> mappedTags = com.reader.oghma.api.metadata.TagNormalizer.map(categories);
             if (!mappedTags.isEmpty()) {
                 holder.bookTagContainer.setVisibility(View.VISIBLE);
-                int showCount = Math.min(mappedTags.size(), 3);
+                int maxShow = 3;
+                int total = mappedTags.size();
+                int showCount = Math.min(total, maxShow);
                 for (int i = 0; i < showCount; i++) {
                     String tag = mappedTags.get(i);
                     TextView chip = TagChipHelper.createChip(holder.itemView.getContext(), tag, 11f);
@@ -204,6 +208,11 @@ public class GoogleBooksAdapter
                         }
                     });
                     holder.bookTagContainer.addView(chip);
+                }
+                if (total > maxShow) {
+                    int extra = total - maxShow;
+                    TextView plusChip = TagChipHelper.createChip(holder.itemView.getContext(), "+" + extra, 11f);
+                    holder.bookTagContainer.addView(plusChip);
                 }
             } else {
                 holder.bookTagContainer.setVisibility(View.GONE);

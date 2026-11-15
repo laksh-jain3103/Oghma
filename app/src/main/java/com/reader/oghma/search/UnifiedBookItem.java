@@ -4,6 +4,8 @@ import com.reader.oghma.api.model.GoogleBookItem;
 import com.reader.oghma.api.model.GutendexBook;
 import com.reader.oghma.api.model.ProjectGutenbergBook;
 
+import java.util.List;
+
 public class UnifiedBookItem {
     public enum Source {
         GUTENBERG,
@@ -22,4 +24,5 @@ public class UnifiedBookItem {
     public GutendexBook gutendexBook;
     public ProjectGutenbergBook projectGutenbergBook;
     public int gutenbergId;
+    public List<String> categories;
 }

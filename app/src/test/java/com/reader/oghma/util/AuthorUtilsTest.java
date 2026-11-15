@@ -13,4 +13,11 @@ public class AuthorUtilsTest {
         assertEquals("Unknown author", AuthorUtils.cleanAuthor(null));
         assertEquals("Unknown author", AuthorUtils.cleanAuthor("   "));
     }
+
+    @Test
+    public void testFromLastFirst() {
+        assertEquals("Lewis Carroll", AuthorUtils.fromLastFirst("Carroll, Lewis"));
+        assertEquals("Lindsay Ellis, Lindsay Ellis", AuthorUtils.fromLastFirst("Lindsay Ellis, Lindsay Ellis"));
+        assertEquals("A & B", AuthorUtils.fromLastFirst("A & B"));
+    }
 }

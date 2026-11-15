@@ -29,7 +29,7 @@ public class BookMatcher {
             return 0.0;
         }
 
-        // 2. Normalize titles (strip punctuation, subtitle after ':', leading articles)
+        // 2. Normalize titles (strip punctuation, subtitle after ':', ';', ' or, ', leading articles)
         String normTargetTitle = normalizeTitle(targetTitle);
         String normCandTitle = normalizeTitle(candidateTitle);
 
@@ -61,10 +61,18 @@ public class BookMatcher {
 
     public static String normalizeTitle(String title) {
         if (title == null) return "";
-        // Take part before subtitle colon if present
+        // Take part before subtitle colon, semicolon, or " or, " (case-insensitive) if present
         int colonIdx = title.indexOf(':');
         if (colonIdx != -1) {
             title = title.substring(0, colonIdx);
+        }
+        int semiIdx = title.indexOf(';');
+        if (semiIdx != -1) {
+            title = title.substring(0, semiIdx);
+        }
+        int orIdx = title.toLowerCase(Locale.ROOT).indexOf(" or, ");
+        if (orIdx != -1) {
+            title = title.substring(0, orIdx);
         }
         // Remove punctuation and extra spaces
         String clean = title.replaceAll("[^a-zA-Z0-9\\s]", " ").trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
@@ -94,7 +102,7 @@ public class BookMatcher {
         return 0.0;
     }
 
-    private static String extractSurname(String name) {
+    public static String extractSurname(String name) {
         if (name == null || name.trim().isEmpty()) return "";
         String[] parts = name.trim().split("\\s+");
         return parts[parts.length - 1].toLowerCase(Locale.ROOT);
