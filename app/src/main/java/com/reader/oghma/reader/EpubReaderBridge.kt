@@ -6,7 +6,6 @@ import androidx.fragment.app.FragmentFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
@@ -351,7 +350,7 @@ class EpubReaderBridge(
 
                                                 callback.onBookmarkRequested()
 
-                                                holdActionMode(mode)
+                                                mode.finish()
 
                                                 return true
                                             }
@@ -365,7 +364,7 @@ class EpubReaderBridge(
 
                                                 callback.onCopyRequested()
 
-                                                holdActionMode(mode)
+                                                mode.finish()
 
                                                 return true
                                             }
@@ -379,7 +378,7 @@ class EpubReaderBridge(
 
                                                 callback.onDictionaryRequested()
 
-                                                holdActionMode(mode)
+                                                mode.finish()
 
                                                 return true
                                             }
@@ -393,7 +392,7 @@ class EpubReaderBridge(
 
                                                 callback.onTranslateRequested()
 
-                                                holdActionMode(mode)
+                                                mode.finish()
 
                                                 return true
                                             }
@@ -407,7 +406,7 @@ class EpubReaderBridge(
 
                                                 callback.onPlayRequested()
 
-                                                holdActionMode(mode)
+                                                mode.finish()
 
                                                 return true
                                             }
@@ -446,37 +445,6 @@ class EpubReaderBridge(
         }
     }
 
-    // The selection menu is kept open until the selected text has been read. Closing it
-    // straight away can clear the selection before the async read finishes, which showed
-    // up as "No text selected." even though text was selected.
-    private var pendingActionMode: ActionMode? = null
-
-    private fun holdActionMode(mode: ActionMode) {
-
-        pendingActionMode = mode
-
-        // Safety net: close the menu even if no handler ever reads the selection.
-        uiScope.launch {
-
-            delay(3000)
-
-            if (pendingActionMode === mode) {
-
-                finishActionMode()
-            }
-        }
-    }
-
-    /** Closes the selection menu once the selection has been read. */
-    fun finishActionMode() {
-
-        val mode = pendingActionMode
-
-        pendingActionMode = null
-
-        mode?.finish()
-    }
-
     fun getCurrentSelection(
         navigator: EpubNavigatorFragment,
         callback: SelectionCallback
@@ -490,11 +458,6 @@ class EpubReaderBridge(
                     navigator.currentSelection()
 
                 if (selection == null) {
-
-                    android.util.Log.d(
-                        "OghmaHighlight",
-                        "EPUB selection read: no selection"
-                    )
 
                     callback.onSelection(
                         null,
@@ -517,11 +480,6 @@ class EpubReaderBridge(
                 val chapterTitle =
                     locator.title
 
-                android.util.Log.d(
-                    "OghmaHighlight",
-                    "EPUB selection read: textLen=${selectedText?.length ?: 0}, locatorLen=${locatorJson.length}, hasChapter=${chapterTitle != null}"
-                )
-
                 callback.onSelection(
                     selectedText,
                     locatorJson,
@@ -543,9 +501,6 @@ class EpubReaderBridge(
                     null,
                     null
                 )
-            } finally {
-
-                finishActionMode()
             }
         }
     }
@@ -655,9 +610,6 @@ class EpubReaderBridge(
                 e.printStackTrace()
 
                 listener.onLookup("", null, Float.NaN, Float.NaN)
-            } finally {
-
-                finishActionMode()
             }
         }
     }
