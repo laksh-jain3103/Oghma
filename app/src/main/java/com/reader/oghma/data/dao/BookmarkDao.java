@@ -1,5 +1,6 @@
 package com.reader.oghma.data.dao;
 
+import androidx.lifecycle.LiveData;
 import androidx.room.Dao;
 import androidx.room.Delete;
 import androidx.room.Insert;
@@ -33,6 +34,14 @@ public interface BookmarkDao {
                     "ORDER BY createdAt DESC"
     )
     List<Bookmark> getAll();
+
+
+    /** Live list of every highlight and note, newest first. */
+    @Query(
+            "SELECT * FROM Bookmark " +
+                    "ORDER BY createdAt DESC"
+    )
+    LiveData<List<Bookmark>> observeAll();
 
 
     @Query(
