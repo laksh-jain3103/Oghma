@@ -51,6 +51,18 @@
             android:textSize="20sp"
             android:textStyle="bold" />
 
+        <!-- Bookmark this page. Visible for EPUB and PDF, hidden for TXT (see ReaderFragment.displayBook). -->
+        <ImageButton
+            android:id="@+id/markerButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Bookmark this page"
+            android:padding="10dp"
+            android:src="@drawable/ic_bookmark_outline"
+            android:visibility="gone" />
+
         <!-- Read aloud. Visible for EPUB and PDF, hidden for TXT (see ReaderFragment.displayBook). -->
         <TextView
             android:id="@+id/ttsButton"

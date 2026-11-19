@@ -79,6 +79,8 @@ import java.util.concurrent.Executors;
 
 import com.reader.oghma.data.entity.Bookmark;
 import com.reader.oghma.data.repository.BookmarkRepository;
+import com.reader.oghma.data.entity.PageMarker;
+import com.reader.oghma.data.repository.PageMarkerRepository;
 import com.reader.oghma.util.AuthorUtils;
 import com.reader.oghma.util.TagChipHelper;
 
@@ -128,7 +130,9 @@ public class LibraryFragment extends Fragment {
 
     private View bookBookmarksEmptyText;
 
-    private BookAdapter bookBookmarksAdapter;
+    private PageMarkerAdapter pageMarkerAdapter;
+
+    private PageMarkerRepository pageMarkerRepository;
 
     private View bookmarksPage;
 
@@ -195,7 +199,7 @@ public class LibraryFragment extends Fragment {
     private String searchQueryLibrary = "";
     private String searchQueryBookmarks = "";
     private String searchQueryNotes = "";
-    private final List<Book> allBookmarkedBooks = new ArrayList<>();
+    private final List<PageMarker> allMarkers = new ArrayList<>();
     private final List<Bookmark> allNotes = new ArrayList<>();
 
     private int currentSavedPage = PAGE_LIBRARY;
@@ -408,9 +412,6 @@ public class LibraryFragment extends Fragment {
             if (adapter != null) {
                 adapter.setBookTags(currentBookTagsMap);
             }
-            if (bookBookmarksAdapter != null) {
-                bookBookmarksAdapter.setBookTags(currentBookTagsMap);
-            }
             applySearch();
         });
 
@@ -435,15 +436,29 @@ public class LibraryFragment extends Fragment {
                         R.id.bookBookmarksEmptyText
                 );
 
-        bookBookmarksAdapter =
-                new BookAdapter();
+        // The Bookmarks page lists places in books the reader marked (page markers).
+        pageMarkerRepository =
+                new PageMarkerRepository(
+                        requireActivity()
+                                .getApplication()
+                );
 
-        bookBookmarksAdapter.setOnBookClickListener(
-                book -> openBook(book)
-        );
+        pageMarkerAdapter =
+                new PageMarkerAdapter();
 
-        bookBookmarksAdapter.setOnBookMoreClickListener(
-                book -> showBookMenu(book)
+        pageMarkerAdapter.setListener(
+                new PageMarkerAdapter.Listener() {
+
+                    @Override
+                    public void onOpen(PageMarker marker, Book book) {
+                        openMarker(marker, book);
+                    }
+
+                    @Override
+                    public void onDelete(PageMarker marker) {
+                        deleteMarker(marker);
+                    }
+                }
         );
 
         bookBookmarksRecyclerView.setLayoutManager(
@@ -453,16 +468,16 @@ public class LibraryFragment extends Fragment {
         );
 
         bookBookmarksRecyclerView.setAdapter(
-                bookBookmarksAdapter
+                pageMarkerAdapter
         );
 
-        viewModel.getBookmarkedBooks().observe(
+        pageMarkerRepository.observeAll().observe(
                 getViewLifecycleOwner(),
-                bookmarkedBooks -> {
+                markers -> {
                     if (!isAdded()) return;
-                    allBookmarkedBooks.clear();
-                    if (bookmarkedBooks != null) {
-                        allBookmarkedBooks.addAll(bookmarkedBooks);
+                    allMarkers.clear();
+                    if (markers != null) {
+                        allMarkers.addAll(markers);
                     }
                     applyBookmarksSearch();
                 }
@@ -735,20 +750,6 @@ public class LibraryFragment extends Fragment {
             searchGoogleBooks("subject:" + tag.name);
         });
 
-        bookBookmarksAdapter.setOnTagClickListener(tag -> {
-            libraryPager.setCurrentItem(pageIndexForNav(R.id.nav_library), true);
-            selectedTagId = tag.tagId;
-            updateTagFilterRow();
-            applySearch();
-            if (tagFilterScrollView != null) tagFilterScrollView.smoothScrollTo(0, 0);
-        });
-
-        bookBookmarksAdapter.setOnTagLongClickListener(tag -> {
-            libraryPager.setCurrentItem(pageIndexForNav(R.id.nav_find_more), true);
-            googleBooksSearchInput.setText("subject:" + tag.name);
-            searchGoogleBooks("subject:" + tag.name);
-        });
-
         googleBooksAdapter.setOnTagClickListener(tag -> {
             libraryPager.setCurrentItem(pageIndexForNav(R.id.nav_find_more), true);
             googleBooksSearchInput.setText("subject:" + tag);
@@ -773,9 +774,6 @@ public class LibraryFragment extends Fragment {
 
         if (adapter != null) {
             adapter.setBookTags(currentBookTagsMap);
-        }
-        if (bookBookmarksAdapter != null) {
-            bookBookmarksAdapter.setBookTags(currentBookTagsMap);
         }
     }
 
@@ -829,6 +827,91 @@ public class LibraryFragment extends Fragment {
         );
     }
 
+
+    private void openMarker(
+            PageMarker marker,
+            Book book
+    ) {
+
+        if (book == null) {
+            Toast.makeText(
+                    requireContext(),
+                    "This book is no longer in your library.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        Bundle args =
+                new Bundle();
+
+        args.putInt(
+                "bookId",
+                marker.bookId
+        );
+
+        args.putString(
+                "bookmarkLocator",
+                marker.locatorJson
+        );
+
+        ReaderFragment readerFragment =
+                new ReaderFragment();
+
+        readerFragment.setArguments(
+                args
+        );
+
+        requireActivity()
+                .getSupportFragmentManager()
+                .beginTransaction()
+                .setReorderingAllowed(true)
+                .setCustomAnimations(
+                        R.anim.fade_slide_in,
+                        R.anim.fade_slide_out,
+                        R.anim.fade_slide_pop_in,
+                        R.anim.fade_slide_pop_out
+                )
+                .replace(
+                        R.id.fragmentContainer,
+                        readerFragment
+                )
+                .addToBackStack(null)
+                .commit();
+    }
+
+    private void deleteMarker(
+            PageMarker marker
+    ) {
+
+        pageMarkerRepository.remove(marker.markerId);
+
+        View root = getView();
+
+        if (root == null) {
+            return;
+        }
+
+        com.google.android.material.snackbar.Snackbar
+                .make(
+                        root,
+                        "Bookmark removed",
+                        com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                )
+                .setAction(
+                        "Undo",
+                        v -> {
+                            PageMarker copy = new PageMarker();
+                            copy.bookId = marker.bookId;
+                            copy.locatorJson = marker.locatorJson;
+                            copy.label = marker.label;
+                            copy.percentage = marker.percentage;
+                            copy.createdAt = marker.createdAt;
+                            pageMarkerRepository.add(copy);
+                        }
+                )
+                .show();
+    }
 
     private void openBookmark(
             Bookmark bookmark
@@ -995,18 +1078,6 @@ public class LibraryFragment extends Fragment {
             openBook(book);
         });
         root.addView(openBookRow);
-        root.addView(createThinDivider(context));
-
-        String bookmarkText = book.isBookmarked ? "Remove Bookmark" : "Add Bookmark";
-        TextView bookmarkRow = createActionRow(context, bookmarkText);
-        bookmarkRow.setOnClickListener(v -> {
-            boolean newStatus = !book.isBookmarked;
-            viewModel.getRepository().updateBookmarkStatus(book.bookId, newStatus);
-            book.isBookmarked = newStatus;
-            Toast.makeText(context, newStatus ? "Added to bookmarks" : "Removed from bookmarks", Toast.LENGTH_SHORT).show();
-            dialog.dismiss();
-        });
-        root.addView(bookmarkRow);
         root.addView(createThinDivider(context));
 
         TextView editTagsRow = createActionRow(context, "Edit tags");
@@ -1450,6 +1521,11 @@ public class LibraryFragment extends Fragment {
                             allBooks
                     );
 
+                    if (pageMarkerAdapter != null) {
+                        pageMarkerAdapter.setBooks(allBooks);
+                        applyBookmarksSearch();
+                    }
+
                     // -----------------------------------------
                     // Apply current search
                     // -----------------------------------------
@@ -1612,40 +1688,45 @@ public class LibraryFragment extends Fragment {
     }
 
     private void applyBookmarksSearch() {
-        if (bookBookmarksAdapter == null) return;
-        List<Book> filtered = new ArrayList<>();
+        if (pageMarkerAdapter == null) return;
+
         String query = searchQueryBookmarks != null ? searchQueryBookmarks : "";
 
-        for (Book book : allBookmarkedBooks) {
-            if (book == null) continue;
-            List<String> tags = new ArrayList<>();
-            List<Tag> tList = currentBookTagsMap.get(book.bookId);
-            if (tList != null) {
-                for (Tag t : tList) {
-                    if (t.name != null) tags.add(t.name);
-                }
-            }
-            if (com.reader.oghma.util.BookSearchMatcher.matches(book.title, book.author, book.format, tags, query)) {
-                filtered.add(book);
+        Map<Integer, Book> booksById = new HashMap<>();
+        for (Book book : allBooks) {
+            if (book != null) {
+                booksById.put(book.bookId, book);
             }
         }
-        bookBookmarksAdapter.setBooks(filtered);
+
+        List<PageMarker> filtered = new ArrayList<>();
+        for (PageMarker marker : allMarkers) {
+            if (marker == null) continue;
+            Book book = booksById.get(marker.bookId);
+            String title = book != null && book.title != null ? book.title : "";
+            String label = marker.label != null ? marker.label : "";
+            if (com.reader.oghma.util.BookSearchMatcher.matches(title, label, "", null, query)) {
+                filtered.add(marker);
+            }
+        }
+
+        pageMarkerAdapter.setMarkers(filtered);
+
         if (savedBookmarksScrollState != null && bookBookmarksRecyclerView != null && bookBookmarksRecyclerView.getLayoutManager() != null) {
             bookBookmarksRecyclerView.getLayoutManager().onRestoreInstanceState(savedBookmarksScrollState);
             savedBookmarksScrollState = null;
         }
+
         boolean isEmpty = filtered.isEmpty();
         bookBookmarksRecyclerView.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
         if (bookBookmarksEmptyText != null) {
             bookBookmarksEmptyText.setVisibility(isEmpty ? View.VISIBLE : View.GONE);
-            if (isEmpty && !query.isEmpty()) {
-                if (bookBookmarksEmptyText instanceof TextView) {
-                    ((TextView) bookBookmarksEmptyText).setText("No matches for \"" + searchQueryBookmarks + "\"");
-                }
-            } else if (isEmpty) {
-                if (bookBookmarksEmptyText instanceof TextView) {
-                    ((TextView) bookBookmarksEmptyText).setText("No bookmarked books yet.\nAdd a bookmark from the book options menu.");
-                }
+            if (isEmpty && bookBookmarksEmptyText instanceof TextView) {
+                ((TextView) bookBookmarksEmptyText).setText(
+                        !query.isEmpty()
+                                ? "No matches for \"" + query + "\""
+                                : "No bookmarks yet.\nTap the bookmark icon while reading to mark your place."
+                );
             }
         }
     }
@@ -1660,6 +1741,11 @@ public class LibraryFragment extends Fragment {
             String noteText = b.note != null ? b.note : "";
             String chTitle = b.chapterTitle != null ? b.chapterTitle : "";
             String selText = b.selectedText != null ? b.selectedText : "";
+
+            // Highlights saved with no text and no note (an old bug allowed them) show as
+            // empty cards, so they are left out of the list.
+            if (selText.trim().isEmpty() && noteText.trim().isEmpty()) continue;
+
             if (com.reader.oghma.util.BookSearchMatcher.matches(chTitle, noteText, selText, null, query)) {
                 filtered.add(b);
             }
@@ -2372,6 +2458,13 @@ public class LibraryFragment extends Fragment {
                             );
                         }
                         updateSearchButtonTint();
+
+                        // Re-apply so the empty-state message is always correct.
+                        if (position == PAGE_NOTES) {
+                            applyNotesSearch();
+                        } else if (position == PAGE_BOOKMARKS) {
+                            applyBookmarksSearch();
+                        }
                     }
 
                     @Override

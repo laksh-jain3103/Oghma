@@ -24,8 +24,10 @@ import com.reader.oghma.R;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.repository.BookRepository;
 import com.reader.oghma.data.repository.BookmarkRepository;
+import com.reader.oghma.data.repository.PageMarkerRepository;
 import com.reader.oghma.data.repository.ProgressRepository;
 import com.reader.oghma.data.entity.Bookmark;
+import com.reader.oghma.data.entity.PageMarker;
 import com.reader.oghma.data.entity.Progress;
 import com.reader.oghma.settings.SettingsFragment;
 import org.readium.r2.navigator.epub.EpubNavigatorFragment;
@@ -47,6 +49,14 @@ public class ReaderFragment extends Fragment {
 
     // Read aloud (text-to-speech)
     private TextView ttsButton;
+
+    // Page markers (bookmark ribbon in the header)
+    private ImageButton markerButton;
+    private PageMarkerRepository pageMarkerRepository;
+    private final List<PageMarker> bookMarkers = new ArrayList<>();
+    private PageMarker markerHere;
+    private String currentLocatorJson;
+    private float currentPercentage;
 
     private View ttsBar;
 
@@ -169,6 +179,21 @@ public class ReaderFragment extends Fragment {
                 view.findViewById(
                         R.id.ttsButton
                 );
+
+        markerButton =
+                view.findViewById(
+                        R.id.markerButton
+                );
+
+        pageMarkerRepository =
+                new PageMarkerRepository(
+                        requireActivity()
+                                .getApplication()
+                );
+
+        markerButton.setOnClickListener(
+                v -> toggleMarker()
+        );
 
         ttsBar =
                 view.findViewById(
@@ -296,6 +321,17 @@ public class ReaderFragment extends Fragment {
         currentBookId =
                 bookId;
 
+        pageMarkerRepository.observeForBook(bookId).observe(
+                getViewLifecycleOwner(),
+                markers -> {
+                    bookMarkers.clear();
+                    if (markers != null) {
+                        bookMarkers.addAll(markers);
+                    }
+                    refreshMarkerButton();
+                }
+        );
+
 
         repository.getBook(
                 bookId,
@@ -352,6 +388,11 @@ public class ReaderFragment extends Fragment {
                     View.GONE
             );
 
+            // No stable page positions in a plain text box either.
+            markerButton.setVisibility(
+                    View.GONE
+            );
+
             progressFooter.setVisibility(
                     View.GONE
             );
@@ -372,6 +413,10 @@ public class ReaderFragment extends Fragment {
                     View.VISIBLE
             );
 
+            markerButton.setVisibility(
+                    View.VISIBLE
+            );
+
             displayEpubBook(book);
 
             return;
@@ -387,12 +432,20 @@ public class ReaderFragment extends Fragment {
                     View.VISIBLE
             );
 
+            markerButton.setVisibility(
+                    View.VISIBLE
+            );
+
             displayPdfBook(book);
 
             return;
         }
 
         ttsButton.setVisibility(
+                View.GONE
+        );
+
+        markerButton.setVisibility(
                 View.GONE
         );
 
@@ -2449,6 +2502,17 @@ public class ReaderFragment extends Fragment {
             float percentage
     ) {
 
+        // The page marker button needs to know where the reader is right now.
+        currentLocatorJson =
+                locator;
+
+        currentPercentage =
+                percentage;
+
+        runOnUi(
+                this::refreshMarkerButton
+        );
+
         pendingProgressLocator =
                 locator;
 
@@ -2492,6 +2556,185 @@ public class ReaderFragment extends Fragment {
                 false;
     }
 
+
+    // =========================================================
+    // Page markers (bookmark ribbon)
+    // =========================================================
+
+    /** Filled ribbon when the page on screen is marked, outline when it is not. */
+    private void refreshMarkerButton() {
+
+        if (!isAdded() || markerButton == null) {
+            return;
+        }
+
+        markerHere =
+                findMarkerHere();
+
+        boolean marked =
+                markerHere != null;
+
+        markerButton.setImageResource(
+                marked
+                        ? R.drawable.ic_bookmark_filled
+                        : R.drawable.ic_bookmark_outline
+        );
+
+        markerButton.setColorFilter(
+                requireContext().getColor(
+                        marked
+                                ? R.color.primary
+                                : R.color.text_secondary
+                )
+        );
+
+        markerButton.setContentDescription(
+                marked
+                        ? "Remove bookmark from this page"
+                        : "Bookmark this page"
+        );
+    }
+
+    private PageMarker findMarkerHere() {
+
+        if (currentLocatorJson == null) {
+            return null;
+        }
+
+        for (PageMarker marker : bookMarkers) {
+
+            if (sameSpot(marker.locatorJson, currentLocatorJson)) {
+                return marker;
+            }
+        }
+
+        return null;
+    }
+
+    /** PDF: same page. EPUB: same chapter file and the same page-sized stretch of it. */
+    private boolean sameSpot(
+            String first,
+            String second
+    ) {
+
+        if (first == null || second == null) {
+            return false;
+        }
+
+        try {
+
+            JSONObject a = new JSONObject(first);
+            JSONObject b = new JSONObject(second);
+
+            boolean aPdf = "pdf".equals(a.optString("type"));
+            boolean bPdf = "pdf".equals(b.optString("type"));
+
+            if (aPdf || bPdf) {
+                return aPdf && bPdf
+                        && a.optInt("page", -1) == b.optInt("page", -2);
+            }
+
+            if (!a.optString("href").equals(b.optString("href"))) {
+                return false;
+            }
+
+            JSONObject la = a.optJSONObject("locations");
+            JSONObject lb = b.optJSONObject("locations");
+
+            if (la != null && lb != null
+                    && la.has("position") && lb.has("position")) {
+                return la.optInt("position") == lb.optInt("position");
+            }
+
+            double pa = la != null ? la.optDouble("progression", -1) : -1;
+            double pb = lb != null ? lb.optDouble("progression", -1) : -1;
+
+            return pa >= 0 && pb >= 0 && Math.abs(pa - pb) < 0.02;
+
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String markerLabel(
+            String locatorJson
+    ) {
+
+        try {
+
+            JSONObject object = new JSONObject(locatorJson);
+
+            if ("pdf".equals(object.optString("type"))) {
+                return "Page " + object.optInt("page", 1);
+            }
+
+        } catch (Exception ignored) {
+        }
+
+        String chapter =
+                chapterOf(locatorJson);
+
+        return chapter != null && !chapter.trim().isEmpty()
+                ? chapter.trim()
+                : "Bookmark";
+    }
+
+    private void toggleMarker() {
+
+        if (currentLocatorJson == null) {
+
+            Toast.makeText(
+                    requireContext(),
+                    "Open a page first.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        if (markerHere != null) {
+
+            pageMarkerRepository.remove(
+                    markerHere.markerId
+            );
+
+            Toast.makeText(
+                    requireContext(),
+                    "Bookmark removed",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        PageMarker marker =
+                new PageMarker();
+
+        marker.bookId =
+                currentBookId;
+
+        marker.locatorJson =
+                currentLocatorJson;
+
+        marker.label =
+                markerLabel(currentLocatorJson);
+
+        marker.percentage =
+                currentPercentage;
+
+        marker.createdAt =
+                System.currentTimeMillis();
+
+        pageMarkerRepository.add(
+                marker
+        );
+
+        Toast.makeText(
+                requireContext(),
+                "Page bookmarked",
+                Toast.LENGTH_SHORT
+        ).show();
+    }
 
     private void runOnUi(
             Runnable action

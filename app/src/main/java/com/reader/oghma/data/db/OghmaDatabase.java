@@ -12,6 +12,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase;
 import com.reader.oghma.data.dao.BookDao;
 import com.reader.oghma.data.dao.BookTagDao;
 import com.reader.oghma.data.dao.BookmarkDao;
+import com.reader.oghma.data.dao.PageMarkerDao;
 import com.reader.oghma.data.dao.ProgressDao;
 import com.reader.oghma.data.dao.TagDao;
 import com.reader.oghma.data.dao.TagSuppressionDao;
@@ -19,6 +20,7 @@ import com.reader.oghma.data.dao.TagSuppressionDao;
 import com.reader.oghma.data.entity.Book;
 import com.reader.oghma.data.entity.BookTag;
 import com.reader.oghma.data.entity.Bookmark;
+import com.reader.oghma.data.entity.PageMarker;
 import com.reader.oghma.data.entity.Progress;
 import com.reader.oghma.data.entity.Tag;
 import com.reader.oghma.data.entity.TagSuppression;
@@ -31,9 +33,10 @@ import com.reader.oghma.data.entity.TagSuppression;
                 Bookmark.class,
                 Tag.class,
                 BookTag.class,
-                TagSuppression.class
+                TagSuppression.class,
+                PageMarker.class
         },
-        version = 6,
+        version = 7,
         exportSchema = true
 )
 public abstract class OghmaDatabase
@@ -50,6 +53,8 @@ public abstract class OghmaDatabase
     public abstract BookTagDao bookTagDao();
 
     public abstract TagSuppressionDao tagSuppressionDao();
+
+    public abstract PageMarkerDao pageMarkerDao();
 
 
     private static volatile OghmaDatabase INSTANCE;
@@ -276,6 +281,39 @@ public abstract class OghmaDatabase
             };
 
 
+    /*
+     * Version 6 → Version 7
+     *
+     * Creates PageMarker: places in a book the reader marked (bookmark ribbons).
+     * Nothing existing is touched.
+     */
+    private static final Migration MIGRATION_6_7 =
+            new Migration(6, 7) {
+
+                @Override
+                public void migrate(
+                        @NonNull SupportSQLiteDatabase database
+                ) {
+
+                    database.execSQL(
+                            "CREATE TABLE IF NOT EXISTS `PageMarker` (" +
+                                    "`markerId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                                    "`bookId` INTEGER NOT NULL, " +
+                                    "`locatorJson` TEXT, " +
+                                    "`label` TEXT, " +
+                                    "`percentage` REAL NOT NULL, " +
+                                    "`createdAt` INTEGER NOT NULL, " +
+                                    "FOREIGN KEY(`bookId`) REFERENCES `Book`(`bookId`) " +
+                                    "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                    );
+
+                    database.execSQL(
+                            "CREATE INDEX IF NOT EXISTS `index_PageMarker_bookId` " +
+                                    "ON `PageMarker` (`bookId`)"
+                    );
+                }
+            };
+
     public static OghmaDatabase getInstance(
             Context context
     ) {
@@ -297,7 +335,8 @@ public abstract class OghmaDatabase
                                             MIGRATION_2_3,
                                             MIGRATION_3_4,
                                             MIGRATION_4_5,
-                                            MIGRATION_5_6
+                                            MIGRATION_5_6,
+                                            MIGRATION_6_7
                                     )
                                     .build();
                 }
